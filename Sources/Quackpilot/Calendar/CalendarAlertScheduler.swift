@@ -13,6 +13,10 @@ final class CalendarAlertScheduler {
     private let service: CalendarService
     private var timer: Timer?
     private var cancellables = Set<AnyCancellable>()
+    /// NotificationCenter tokens installed by `start()`; tracked so `stop()`
+    /// can deregister them. Without this every start()/stop() cycle leaks two
+    /// observers and the next event would fire `tick()` multiple times.
+    private var observerTokens: [NSObjectProtocol] = []
     private var firedKeys: [String: Date] = [:]
     private let firedKeysDefaultsKey = "calendar.firedAlerts.v1"
     private let tickInterval: TimeInterval = 60
@@ -31,6 +35,7 @@ final class CalendarAlertScheduler {
     }
 
     func start() {
+        stop()
         tick()
         let t = Timer.scheduledTimer(withTimeInterval: tickInterval, repeats: true) { [weak self] _ in
             self?.tick()
@@ -39,18 +44,26 @@ final class CalendarAlertScheduler {
         timer = t
 
         // Catch-up triggers for when the Timer was throttled or the Mac was asleep.
-        NSWorkspace.shared.notificationCenter.addObserver(
+        let wake = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.tick() }
-        NotificationCenter.default.addObserver(
+        let active = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.tick() }
+        observerTokens = [wake, active]
     }
 
     func stop() {
         timer?.invalidate()
         timer = nil
+        for token in observerTokens {
+            NotificationCenter.default.removeObserver(token)
+            NSWorkspace.shared.notificationCenter.removeObserver(token)
+        }
+        observerTokens.removeAll()
     }
+
+    deinit { stop() }
 
     // MARK: - Tick
 

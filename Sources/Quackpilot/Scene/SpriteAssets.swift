@@ -3,90 +3,94 @@ import CoreText
 import SpriteKit
 
 enum SpriteAssets {
-    /// Logical display width of the plane sprite on screen, in points.
-    /// The supplied PNG is 809×308; we render at ~240pt wide for an arcade feel.
-    static let planeDisplayWidth: CGFloat = 240
+    /// Logical display width of the composited plane sprite on screen, in points.
+    /// The supplied PNGs are 1088×1088 square; we render at ~200pt wide so the
+    /// drawing inside the canvas roughly matches the old (618×404) plane sprite.
+    static let planeDisplayWidth: CGFloat = 200
 
-    /// The plane PNG has a thin rope extending from its left side. Empirically
-    /// (sampled by scanning brown rope pixels in the supplied image) the rope tip
-    /// sits at the LEFT edge of the image at about 43.5% from the bottom.
+    /// Rope tip on the composited plane (where the rope meets the fuselage).
+    /// X comes from QuakPit's `margin-right: -16px` (rope tip sits 16px inside
+    /// the plane's left edge on a 130-px canvas → relX = 16/130 ≈ 0.123).
+    /// Y is aligned to the **propeller hub** (relY = 0.438, mirror of the
+    /// blade's `transform-origin: 56.2%` from-top) so the rope, the banner,
+    /// and the spinning blade all share one horizontal axis through the
+    /// fuselage. Origin is bottom-left of the rendered sprite.
     static func planeRopeTipOffset(displaySize: CGSize) -> CGPoint {
-        let relX: CGFloat = 0.00
-        let relY: CGFloat = 0.435
+        let relX: CGFloat = 0.123
+        let relY: CGFloat = 0.438
         return CGPoint(
             x: (relX - 0.5) * displaySize.width,
             y: (relY - 0.5) * displaySize.height
         )
     }
 
-    private static var cachedPlaneTexture: SKTexture?
+    /// Rope sprite size at scale 1.0. From QuakPit CSS: 56×3 on a 130-px-wide
+    /// aircraft → width = 56/130, height = 3/130 of the plane display width.
+    /// Rendered as a separate sprite that sits BEHIND the plane so its right
+    /// end visually tucks into the fuselage.
+    static func ropeSize(planeWidth: CGFloat) -> CGSize {
+        CGSize(
+            width:  planeWidth * (56.0 / 130.0),
+            height: max(2, planeWidth * (3.0 / 130.0))
+        )
+    }
 
-    static func planeTexture() -> SKTexture {
-        if let t = cachedPlaneTexture { return t }
-        guard let url = Bundle.module.url(forResource: "plane", withExtension: "png") else {
-            fatalError("plane image missing from bundle resources")
+    /// Visible rope colour — matches QuakPit's `rgba(35, 35, 35, 0.78)`.
+    static var ropeColor: NSColor {
+        NSColor(srgbRed: 35.0/255, green: 35.0/255, blue: 35.0/255, alpha: 0.78)
+    }
+
+    // MARK: - Composite plane parts
+
+    private static var planeTextureCache: [String: SKTexture] = [:]
+    private static var headTextureCache: [String: SKTexture] = [:]
+    private static var bladeTextureCache: SKTexture?
+
+    static func planeBaseTexture(colorId: String) -> SKTexture {
+        if let t = planeTextureCache[colorId] { return t }
+        let resource = "plane-\(colorId)-base"
+        guard let url = Bundle.module.url(forResource: resource, withExtension: "png"),
+              let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+            return SKTexture()
         }
-        // The user's file may actually be a JPEG (no alpha) with a black background.
-        // We chroma-key near-black pixels to transparent so the plane reads cleanly
-        // against the desktop instead of inside a black rectangle.
-        let cg = loadAndChromaKey(url: url)
         let t = SKTexture(cgImage: cg)
         t.filteringMode = .nearest
-        cachedPlaneTexture = t
+        planeTextureCache[colorId] = t
         return t
     }
 
-    private static func loadAndChromaKey(url: URL) -> CGImage {
-        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+    static func headTexture(headId: String) -> SKTexture {
+        if let t = headTextureCache[headId] { return t }
+        let resource = "head-\(headId)"
+        guard let url = Bundle.module.url(forResource: resource, withExtension: "png"),
+              let src = CGImageSourceCreateWithURL(url as CFURL, nil),
               let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
-            fatalError("could not decode plane image at \(url)")
+            return SKTexture()
         }
-        let w = cg.width, h = cg.height
-        let bytesPerRow = w * 4
-        var buffer = [UInt8](repeating: 0, count: w * h * 4)
-        let cs = CGColorSpaceCreateDeviceRGB()
-        let bmpInfo = CGImageAlphaInfo.premultipliedLast.rawValue
-        guard let ctx = CGContext(
-            data: &buffer,
-            width: w, height: h,
-            bitsPerComponent: 8,
-            bytesPerRow: bytesPerRow,
-            space: cs,
-            bitmapInfo: bmpInfo
-        ) else {
-            return cg
+        let t = SKTexture(cgImage: cg)
+        t.filteringMode = .nearest
+        headTextureCache[headId] = t
+        return t
+    }
+
+    static func bladeTexture() -> SKTexture {
+        if let t = bladeTextureCache { return t }
+        guard let url = Bundle.module.url(forResource: "blade", withExtension: "png"),
+              let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+            return SKTexture()
         }
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-        // Threshold: pixels with R,G,B all below this become transparent.
-        let blackThreshold: UInt8 = 20
-        var i = 0
-        while i < buffer.count {
-            let r = buffer[i]
-            let g = buffer[i + 1]
-            let b = buffer[i + 2]
-            if r < blackThreshold && g < blackThreshold && b < blackThreshold {
-                buffer[i] = 0
-                buffer[i + 1] = 0
-                buffer[i + 2] = 0
-                buffer[i + 3] = 0
-            }
-            i += 4
-        }
-        guard let outCtx = CGContext(
-            data: &buffer,
-            width: w, height: h,
-            bitsPerComponent: 8,
-            bytesPerRow: bytesPerRow,
-            space: cs,
-            bitmapInfo: bmpInfo
-        ), let result = outCtx.makeImage() else {
-            return cg
-        }
-        return result
+        let t = SKTexture(cgImage: cg)
+        t.filteringMode = .nearest
+        bladeTextureCache = t
+        return t
     }
 
     static func reloadFromDisk() {
-        cachedPlaneTexture = nil
+        planeTextureCache.removeAll()
+        headTextureCache.removeAll()
+        bladeTextureCache = nil
     }
 
     // MARK: - Pixel font

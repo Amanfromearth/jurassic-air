@@ -3,13 +3,15 @@ import Foundation
 
 /// Persisted store of user-defined reminders. Backed by UserDefaults via JSON.
 final class CustomRemindersStore: ObservableObject {
-    static let shared = CustomRemindersStore()
+    static let shared = CustomRemindersStore(defaults: .standard)
 
     @Published private(set) var reminders: [CustomReminder] = []
 
+    private let defaults: UserDefaults
     private let defaultsKey = "customReminders.v1"
 
-    private init() {
+    init(defaults: UserDefaults) {
+        self.defaults = defaults
         load()
     }
 
@@ -48,7 +50,7 @@ final class CustomRemindersStore: ObservableObject {
     // MARK: - Persistence
 
     private func load() {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey) else { return }
+        guard let data = defaults.data(forKey: defaultsKey) else { return }
         do {
             reminders = try JSONDecoder().decode([CustomReminder].self, from: data)
         } catch {
@@ -59,7 +61,7 @@ final class CustomRemindersStore: ObservableObject {
     private func save() {
         do {
             let data = try JSONEncoder().encode(reminders)
-            UserDefaults.standard.set(data, forKey: defaultsKey)
+            defaults.set(data, forKey: defaultsKey)
         } catch {
             NSLog("CustomRemindersStore encode failed: \(error)")
         }

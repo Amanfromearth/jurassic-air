@@ -9,7 +9,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let screenManager = ScreenManager()
     let dispatcher = ReminderDispatcher()
-    let hotkeys = HotkeyManager()
     let statusItem = StatusItemController()
     let scheduler = ReminderScheduler()
     lazy var calendarScheduler = CalendarAlertScheduler(service: Services.calendar)
@@ -49,13 +48,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onSettings: { [weak self] in self?.toggleSettingsPanel() },
             onQuit: { NSApp.terminate(nil) }
         )
-
-        hotkeys.register(
-            spawn: { [weak self] in self?.spawnPlaceholderPlane() },
-            triggerReminder: { [weak self] in self?.triggerRandomReminder() },
-            reloadAssets: { [weak self] in self?.reloadAssets() },
-            toggleSettings: { [weak self] in self?.toggleSettingsPanel() }
-        )
     }
 
     func triggerRandomReminder() {
@@ -76,21 +68,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             win.orderOut(nil)
             return
         }
-        let panel = SettingsPanelView()
-            .environmentObject(AppSettings.shared)
-            .frame(minWidth: 420, minHeight: 480)
-        let host = NSHostingController(rootView: panel)
-        let win = settingsWindow ?? NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 640),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered, defer: false
-        )
-        win.title = "Quackpilot Settings"
-        win.contentViewController = host
-        win.center()
-        win.isReleasedWhenClosed = false
+        // Reuse the existing window AND hosting controller across close/reopen
+        // so the selected sidebar tab + appearance sub-tab survive. Only on
+        // first open do we build the SwiftUI view tree.
+        let win: NSWindow
+        if let existing = settingsWindow {
+            win = existing
+        } else {
+            win = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 940, height: 720),
+                styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+                backing: .buffered, defer: false
+            )
+            win.titlebarAppearsTransparent = true
+            win.titleVisibility = .hidden
+            let panel = SettingsPanelView()
+                .environmentObject(AppSettings.shared)
+            win.title = "Quackpilot Settings"
+            win.contentViewController = NSHostingController(rootView: panel)
+            win.isReleasedWhenClosed = false
+            settingsWindow = win
+        }
+        // Always re-center on the primary display each time the user opens
+        // Settings, even if it was previously dragged to another monitor.
+        centerOnPrimaryScreen(win)
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        settingsWindow = win
+    }
+
+    private func centerOnPrimaryScreen(_ window: NSWindow) {
+        guard let screen = NSScreen.screens.first else {
+            window.center()
+            return
+        }
+        let visible = screen.visibleFrame
+        var frame = window.frame
+        frame.origin.x = visible.midX - frame.width / 2
+        frame.origin.y = visible.midY - frame.height / 2
+        window.setFrame(frame, display: true)
     }
 }

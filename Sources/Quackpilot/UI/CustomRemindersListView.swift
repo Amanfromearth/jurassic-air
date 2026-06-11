@@ -7,44 +7,48 @@ struct CustomRemindersListView: View {
 
     @State private var showingAddSheet = false
     @State private var editingReminder: CustomReminder?
+    @State private var deletingReminder: CustomReminder?
 
     private static let formatter: DateFormatter = {
         let f = DateFormatter()
-        f.dateStyle = .short
+        f.dateStyle = .medium
         f.timeStyle = .short
         return f
     }()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Custom Reminders").font(.headline)
-                Spacer()
-                Button {
-                    showingAddSheet = true
-                } label: {
-                    Label("Add", systemImage: "plus")
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsCard {
+                FormRow(
+                    "Custom reminders",
+                    subtitle: "\(store.reminders.count) reminder\(store.reminders.count == 1 ? "" : "s")",
+                    isFirst: true
+                ) {
+                    Button {
+                        showingAddSheet = true
+                    } label: {
+                        Label("Add", systemImage: "plus")
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .controlSize(.regular)
                 }
-                .buttonStyle(.borderless)
-            }
 
-            if store.reminders.isEmpty {
-                Text("No custom reminders yet — add one to schedule the plane.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 4)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(store.reminders) { r in
-                        row(for: r)
-                        if r.id != store.reminders.last?.id {
-                            Divider()
+                if store.reminders.isEmpty {
+                    FormRowFullWidth {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("No reminders yet")
+                                .font(.system(size: 13, weight: .medium))
+                            Text("Add a reminder to schedule a flyover at the time you choose.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
                         }
+                        .padding(.vertical, 4)
+                    }
+                } else {
+                    ForEach(Array(store.reminders.enumerated()), id: \.element.id) { idx, reminder in
+                        row(for: reminder, isFirst: idx == 0 && false /* always divider after header */)
                     }
                 }
-                .background(Color(NSColor.controlBackgroundColor))
-                .cornerRadius(6)
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.secondary.opacity(0.3), lineWidth: 0.5))
             }
         }
         .sheet(isPresented: $showingAddSheet) {
@@ -67,45 +71,68 @@ struct CustomRemindersListView: View {
                 onCancel: { editingReminder = nil }
             )
         }
+        .confirmationDialog(
+            "Delete reminder?",
+            isPresented: Binding(
+                get: { deletingReminder != nil },
+                set: { if !$0 { deletingReminder = nil } }
+            ),
+            presenting: deletingReminder
+        ) { reminder in
+            Button("Delete \(reminder.title.isEmpty ? "this reminder" : "“\(reminder.title)”")", role: .destructive) {
+                store.delete(id: reminder.id)
+                deletingReminder = nil
+            }
+            Button("Cancel", role: .cancel) { deletingReminder = nil }
+        } message: { _ in
+            Text("This cannot be undone.")
+        }
     }
 
     @ViewBuilder
-    private func row(for r: CustomReminder) -> some View {
-        HStack(spacing: 10) {
-            Toggle("", isOn: Binding(
-                get: { r.enabled },
-                set: { store.setEnabled(id: r.id, $0) }
-            )).labelsHidden().toggleStyle(.switch).controlSize(.small)
+    private func row(for r: CustomReminder, isFirst: Bool) -> some View {
+        FormRowFullWidth(isFirst: isFirst) {
+            HStack(spacing: 12) {
+                Toggle("", isOn: Binding(
+                    get: { r.enabled },
+                    set: { store.setEnabled(id: r.id, $0) }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(r.title.isEmpty ? "(untitled)" : r.title)
-                    .font(.body)
-                    .lineLimit(1)
-                Text(subtitle(for: r))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer()
-            Button {
-                editingReminder = r
-            } label: {
-                Image(systemName: "pencil")
-            }
-            .buttonStyle(.borderless)
-            .help("Edit")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(r.title.isEmpty ? "(untitled)" : r.title)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+                    Text(subtitle(for: r))
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button {
+                    editingReminder = r
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Edit")
 
-            Button {
-                store.delete(id: r.id)
-            } label: {
-                Image(systemName: "trash")
+                Button {
+                    deletingReminder = r
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.red.opacity(0.8))
+                }
+                .buttonStyle(.borderless)
+                .help("Delete")
             }
-            .buttonStyle(.borderless)
-            .help("Delete")
+            .opacity(r.enabled ? 1 : 0.55)
         }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 8)
-        .opacity(r.enabled ? 1 : 0.55)
     }
 
     private func subtitle(for r: CustomReminder) -> String {

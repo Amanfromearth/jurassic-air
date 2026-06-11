@@ -11,16 +11,67 @@ struct CalendarSettingsView: View {
     private let offsetChoices: [Int] = [30, 15, 10, 5, 2, 1, 0]
 
     var body: some View {
-        GroupBox("Calendar") {
-            VStack(alignment: .leading, spacing: 10) {
-                accessRow
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsCard("Access") {
+                FormRow(
+                    "Calendar access",
+                    subtitle: accessSubtitle,
+                    isFirst: true
+                ) {
+                    accessControl
+                }
                 if status == .fullAccess {
-                    Toggle("Enable calendar reminders", isOn: $settings.calendarEnabled)
-                    calendarPicker
-                    offsetPicker
+                    FormRow("Enable calendar reminders") {
+                        Toggle("", isOn: $settings.calendarEnabled).labelsHidden()
+                    }
                 }
             }
-            .padding(.vertical, 4)
+
+            if status == .fullAccess {
+                SettingsCard(
+                    "Calendars",
+                    footer: calendars.isEmpty ? "No calendars found in Calendar.app." : nil
+                ) {
+                    if calendars.isEmpty {
+                        FormRowFullWidth(isFirst: true) {
+                            Text("Connect calendars in Calendar.app to see them here.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        ForEach(Array(calendars.enumerated()), id: \.element.id) { idx, cal in
+                            FormRow(cal.displayName, isFirst: idx == 0) {
+                                HStack(spacing: 8) {
+                                    Circle()
+                                        .fill(Color(cal.color))
+                                        .frame(width: 9, height: 9)
+                                    Toggle("", isOn: binding(for: cal))
+                                        .labelsHidden()
+                                        .toggleStyle(.switch)
+                                        .controlSize(.small)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                SettingsCard(
+                    "Alerts",
+                    footer: "Each enabled offset fires its own plane before the meeting. 0 = right at the meeting start."
+                ) {
+                    FormRowFullWidth(isFirst: true) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Alert me before each meeting")
+                                .font(.system(size: 13))
+                            FlowLayout(spacing: 6) {
+                                ForEach(offsetChoices, id: \.self) { minutes in
+                                    chip(for: minutes)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         .onAppear { refresh() }
         .task(id: refreshTick) { await reloadCalendars() }
@@ -28,11 +79,19 @@ struct CalendarSettingsView: View {
 
     // MARK: - Access row
 
-    private var accessRow: some View {
-        HStack(spacing: 8) {
-            Text("Access:")
+    private var accessSubtitle: String {
+        switch status {
+        case .fullAccess:    return "Quackpilot can read your calendars."
+        case .denied:        return "Access denied in System Settings → Privacy & Security → Calendars."
+        case .restricted:    return "Calendar access is restricted on this device."
+        case .notDetermined: return "Grant access to schedule planes before meetings."
+        }
+    }
+
+    @ViewBuilder
+    private var accessControl: some View {
+        HStack(spacing: 10) {
             statusLabel
-            Spacer()
             switch status {
             case .notDetermined:
                 Button("Request Access") {
@@ -62,37 +121,35 @@ struct CalendarSettingsView: View {
 
     @ViewBuilder
     private var statusLabel: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 7, height: 7)
+            Text(statusText)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var statusColor: Color {
         switch status {
-        case .fullAccess:    Text("● Granted").foregroundStyle(.green)
-        case .denied:        Text("● Denied").foregroundStyle(.red)
-        case .restricted:    Text("● Restricted").foregroundStyle(.red)
-        case .notDetermined: Text("● Not Determined").foregroundStyle(.secondary)
+        case .fullAccess:    return .green
+        case .denied:        return .red
+        case .restricted:    return .red
+        case .notDetermined: return .gray
+        }
+    }
+
+    private var statusText: String {
+        switch status {
+        case .fullAccess:    return "Granted"
+        case .denied:        return "Denied"
+        case .restricted:    return "Restricted"
+        case .notDetermined: return "Not determined"
         }
     }
 
     // MARK: - Calendars
-
-    private var calendarPicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Calendars").font(.subheadline).foregroundStyle(.secondary)
-            if calendars.isEmpty {
-                Text("No calendars found in Calendar.app.")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                ForEach(calendars) { cal in
-                    HStack(spacing: 8) {
-                        Toggle("", isOn: binding(for: cal))
-                            .labelsHidden().toggleStyle(.checkbox)
-                        Circle()
-                            .fill(Color(cal.color))
-                            .frame(width: 9, height: 9)
-                        Text(cal.displayName).font(.body)
-                        Spacer()
-                    }
-                }
-            }
-        }
-    }
 
     private func binding(for cal: CalendarMetadata) -> Binding<Bool> {
         Binding(
@@ -106,29 +163,21 @@ struct CalendarSettingsView: View {
 
     // MARK: - Offsets
 
-    private var offsetPicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Alert me before each meeting").font(.subheadline).foregroundStyle(.secondary)
-            FlowLayout(spacing: 6) {
-                ForEach(offsetChoices, id: \.self) { minutes in
-                    chip(for: minutes)
-                }
-            }
-            Text("Tip: 0 = right at the meeting start.")
-                .font(.caption).foregroundStyle(.tertiary)
-        }
-    }
-
     private func chip(for minutes: Int) -> some View {
         let isOn = settings.alertOffsetsMinutes.contains(minutes)
         return Button(action: { toggleOffset(minutes) }) {
             Text(minutes == 0 ? "At start" : "\(minutes) min")
-                .font(.caption)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(isOn ? Color.accentColor : Color(NSColor.controlBackgroundColor))
+                .font(.system(size: 12, weight: .medium))
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(isOn ? Color.accentColor : Color.primary.opacity(0.06))
                 .foregroundColor(isOn ? .white : .primary)
                 .clipShape(Capsule())
-                .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.3), lineWidth: 0.5))
+                .overlay(
+                    Capsule().strokeBorder(
+                        isOn ? Color.accentColor : Color.primary.opacity(0.12),
+                        lineWidth: 0.5
+                    )
+                )
         }
         .buttonStyle(.plain)
     }

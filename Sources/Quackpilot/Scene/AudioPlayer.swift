@@ -1,44 +1,90 @@
 import AVFoundation
 import Foundation
 
+/// Plane audio: a continuous engine drone (plane.mp3 loop) plus a one-shot
+/// signature sound from the selected `SoundPack` that fires mid-flight.
 final class PlaneAudioPlayer {
-    private var player: AVAudioPlayer?
+    private var engine: AVAudioPlayer?
+    private var voice: AVAudioPlayer?
+    private var voiceWorkItem: DispatchWorkItem?
 
     init() {
-        prepare()
+        prepareEngine()
     }
 
-    private func prepare() {
+    private func prepareEngine() {
         guard let url = Bundle.module.url(forResource: "plane", withExtension: "mp3") else {
             NSLog("plane.mp3 missing from bundle resources")
             return
         }
         do {
             let p = try AVAudioPlayer(contentsOf: url)
-            p.numberOfLoops = -1 // loop indefinitely
+            p.numberOfLoops = -1
             p.volume = 0.45
             p.prepareToPlay()
-            player = p
+            engine = p
         } catch {
-            NSLog("AVAudioPlayer init failed: \(error)")
+            NSLog("AVAudioPlayer (engine) init failed: \(error)")
         }
     }
 
-    func start() {
-        guard AppSettings.shared.audioEnabled, let p = player else { return }
-        if p.isPlaying { return }
-        p.currentTime = 0
-        p.volume = 0.45
-        p.play()
+    private func loadVoice(_ pack: SoundPack) {
+        guard let url = Bundle.module.url(forResource: pack.resource, withExtension: pack.ext) else {
+            NSLog("sound pack \(pack.id) missing (\(pack.resource).\(pack.ext))")
+            voice = nil
+            return
+        }
+        do {
+            let p = try AVAudioPlayer(contentsOf: url)
+            p.numberOfLoops = 0
+            p.volume = 0.85
+            p.prepareToPlay()
+            voice = p
+        } catch {
+            NSLog("AVAudioPlayer (voice) init failed: \(error)")
+            voice = nil
+        }
     }
 
-    /// Fade out quickly and stop. Used on natural exit and on click-dismiss.
+    /// Start the engine loop and schedule the voice one-shot to fire midway
+    /// through `flightDuration` seconds.
+    func start(flightDuration: TimeInterval = 8) {
+        guard AppSettings.shared.audioEnabled else { return }
+        if let e = engine, !e.isPlaying {
+            e.currentTime = 0
+            e.volume = 0.45
+            e.play()
+        }
+
+        voiceWorkItem?.cancel()
+        voiceWorkItem = nil
+        guard AppSettings.shared.characterSoundEnabled else {
+            voice = nil
+            return
+        }
+        // (Re)load the chosen pack each flight so a setting change takes effect
+        // for the next plane without restarting the app.
+        let pack = SoundCatalog.pack(id: AppSettings.shared.soundPack)
+        loadVoice(pack)
+        let work = DispatchWorkItem { [weak self] in
+            self?.voice?.currentTime = 0
+            self?.voice?.play()
+        }
+        voiceWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + flightDuration / 2, execute: work)
+    }
+
+    /// Fade engine + stop the voice. Cancels any pending mid-flight one-shot.
     func stop() {
-        guard let p = player, p.isPlaying else { return }
+        voiceWorkItem?.cancel()
+        voiceWorkItem = nil
+        if let v = voice, v.isPlaying { v.stop() }
+
+        guard let e = engine, e.isPlaying else { return }
         let fadeDuration: TimeInterval = 0.35
-        p.setVolume(0, fadeDuration: fadeDuration)
-        DispatchQueue.main.asyncAfter(deadline: .now() + fadeDuration + 0.05) { [weak p] in
-            p?.stop()
+        e.setVolume(0, fadeDuration: fadeDuration)
+        DispatchQueue.main.asyncAfter(deadline: .now() + fadeDuration + 0.05) { [weak e] in
+            e?.stop()
         }
     }
 }

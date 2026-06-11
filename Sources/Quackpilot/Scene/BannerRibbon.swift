@@ -2,31 +2,35 @@ import AppKit
 import SpriteKit
 
 /// Procedurally-rendered pixel-art banner. The banner's width adapts to the
-/// text length up to `maxBitmapWidth`; longer text wraps to a 2-line banner
-/// (taller). Two-pass render each frame:
-///   1) Draw a "flat" banner (body + border + stripes + 1 or 2 lines of text)
-///      into a bottom-up RGBA buffer, cached until the text changes.
+/// text length up to `maxBitmapWidth`; longer text wraps across as many lines
+/// as needed (banner grows taller), with no truncation. Two-pass render each frame:
+///   1) Draw a "flat" banner (body + border + stripes + N lines of text)
+///      into a bottom-up RGBA buffer, cached until the text/theme/font changes.
 ///   2) Copy each column into the output buffer shifted by a sine offset so the
 ///      whole banner — text included — rides the wave together.
 ///
 /// Output is upscaled by `pixelScale` with nearest-neighbor filtering to keep
 /// pixel-art edges crisp.
+///
+/// Colours come from the selected `BannerTheme` (see `ThemeCatalog`); the body
+/// font comes from the selected `BannerFont` (see `FontCatalog`).
 final class BannerRibbon: SKSpriteNode {
     // MARK: - Layout constants (logical bitmap pixels, pre-upscale)
 
     private let pixelScale: CGFloat = 4
     /// Smallest banner width so very short text still has visible body around it.
     private let minBitmapWidth = 44
-    /// Largest single-line banner width — text wider than this wraps to 2 lines.
-    private let maxBitmapWidth = 160
+    /// Largest single-line banner width — text wider than this wraps to multiple lines.
+    private let maxBitmapWidth = 180
     /// Banner height for a 1-line banner.
     private let singleLineHeight = 22
-    /// Banner height for a 2-line banner.
-    private let twoLineHeight = 36
+    /// Extra vertical pixels added per additional line beyond the first.
+    private let lineStep = 14
     /// Horizontal padding inside the banner body (each side).
     private let horizontalPad = 6
-    /// Font size used for the bitmap text. Press Start 2P glyphs are 8px at 8pt.
-    private let fontSize: CGFloat = 8
+    /// Font size for pixel fonts. Non-pixel fonts render larger (see fontSize).
+    private let pixelFontSize: CGFloat = 8
+    private let vectorFontSize: CGFloat = 11
 
     // MARK: - State
 
@@ -37,6 +41,10 @@ final class BannerRibbon: SKSpriteNode {
     private var flatBufferRGBA: [UInt8] = []
     private var startTime: TimeInterval = 0
     private(set) var text: String = ""
+    /// Theme and font snapshot used to render the cached flat buffer — re-render
+    /// when these change.
+    private var renderedThemeId: String = ""
+    private var renderedFontId: String = ""
 
     // MARK: - Init
 
@@ -51,9 +59,14 @@ final class BannerRibbon: SKSpriteNode {
     required init?(coder: NSCoder) { fatalError() }
 
     func setText(_ newText: String) {
-        guard newText != text || flatBufferRGBA.isEmpty else { return }
+        if newText == text && !flatBufferRGBA.isEmpty && themeAndFontUnchanged() { return }
         text = newText
         relayoutAndRender()
+    }
+
+    private func themeAndFontUnchanged() -> Bool {
+        let s = AppSettings.shared
+        return renderedThemeId == s.bannerTheme && renderedFontId == s.bannerFont
     }
 
     private func relayoutAndRender() {
@@ -62,6 +75,9 @@ final class BannerRibbon: SKSpriteNode {
         bitmapWidth = layout.width
         bitmapHeight = layout.height
         flatBufferRGBA = renderFlatBanner()
+        let s = AppSettings.shared
+        renderedThemeId = s.bannerTheme
+        renderedFontId = s.bannerFont
         size = CGSize(
             width: CGFloat(bitmapWidth) * pixelScale,
             height: CGFloat(bitmapHeight) * pixelScale
@@ -70,6 +86,8 @@ final class BannerRibbon: SKSpriteNode {
 
     func tick(currentTime: TimeInterval) {
         if startTime == 0 { startTime = currentTime }
+        // If the theme or font changed since last render, redraw the flat buffer.
+        if !themeAndFontUnchanged() { relayoutAndRender() }
         if flatBufferRGBA.isEmpty { relayoutAndRender() }
         let t = currentTime - startTime
         texture = renderWavedTexture(time: t)
@@ -83,6 +101,12 @@ final class BannerRibbon: SKSpriteNode {
         let lines: [String]
     }
 
+    private var activeFont: BannerFont { FontCatalog.font(id: AppSettings.shared.bannerFont) }
+    private var activeFontSize: CGFloat {
+        activeFont.isPixel ? pixelFontSize : vectorFontSize
+    }
+    private var activeTheme: BannerTheme { ThemeCatalog.theme(id: AppSettings.shared.bannerTheme) }
+
     private func computeLayout(for text: String) -> Layout {
         let pad = horizontalPad * 2
         let singleW = max(minBitmapWidth, measureWidth(text) + pad)
@@ -91,64 +115,64 @@ final class BannerRibbon: SKSpriteNode {
             return Layout(width: singleW, height: singleLineHeight, lines: [text])
         }
 
-        // Wrap to two lines, prefer breaking at a space near the middle.
-        var (l1, l2) = splitForTwoLines(text)
         let maxInnerW = maxBitmapWidth - pad
-
-        // If a line is still too long after wrapping, truncate with an ellipsis.
-        if measureWidth(l1) > maxInnerW {
-            l1 = truncate(l1, toFit: maxInnerW)
-        }
-        if measureWidth(l2) > maxInnerW {
-            l2 = truncate(l2, toFit: maxInnerW)
-        }
-
-        let widest = max(measureWidth(l1), measureWidth(l2))
+        let wrapped = wrapToLines(text, maxWidth: maxInnerW)
+        let widest = wrapped.map(measureWidth).max() ?? 0
         let w = min(maxBitmapWidth, max(minBitmapWidth, widest + pad))
-        return Layout(width: w, height: twoLineHeight, lines: [l1, l2])
+        let h = singleLineHeight + max(0, wrapped.count - 1) * lineStep
+        return Layout(width: w, height: h, lines: wrapped)
     }
 
-    private func splitForTwoLines(_ text: String) -> (String, String) {
-        let chars = Array(text)
-        let mid = chars.count / 2
+    /// Greedy word wrap. Words that themselves exceed `maxWidth` (e.g. a long
+    /// URL) are hard-broken at the character level so nothing is lost.
+    private func wrapToLines(_ text: String, maxWidth: Int) -> [String] {
+        let words = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        guard !words.isEmpty else { return [text] }
 
-        // Find the space closest to the midpoint.
-        var bestIdx: Int? = nil
-        var bestDelta = Int.max
-        for (i, ch) in chars.enumerated() where ch == " " {
-            let delta = abs(i - mid)
-            if delta < bestDelta {
-                bestDelta = delta
-                bestIdx = i
+        var lines: [String] = []
+        var current = ""
+        for word in words {
+            let candidate = current.isEmpty ? word : current + " " + word
+            if measureWidth(candidate) <= maxWidth {
+                current = candidate
+                continue
+            }
+            if !current.isEmpty { lines.append(current) }
+            if measureWidth(word) > maxWidth {
+                let pieces = hardBreak(word, maxWidth: maxWidth)
+                lines.append(contentsOf: pieces.dropLast())
+                current = pieces.last ?? ""
+            } else {
+                current = word
             }
         }
-
-        if let idx = bestIdx {
-            let line1 = String(chars[0..<idx])
-            let line2 = String(chars[(idx + 1)...])
-            return (line1, line2)
-        }
-        // No spaces — hard split at the midpoint.
-        let line1 = String(chars[0..<mid])
-        let line2 = String(chars[mid...])
-        return (line1, line2)
+        if !current.isEmpty { lines.append(current) }
+        return lines.isEmpty ? [text] : lines
     }
 
-    private func truncate(_ s: String, toFit maxWidth: Int) -> String {
-        var trimmed = s
-        while !trimmed.isEmpty && measureWidth(trimmed + "…") > maxWidth {
-            trimmed.removeLast()
+    private func hardBreak(_ word: String, maxWidth: Int) -> [String] {
+        var pieces: [String] = []
+        var current = ""
+        for ch in word {
+            let candidate = current + String(ch)
+            if measureWidth(candidate) <= maxWidth {
+                current = candidate
+            } else {
+                if !current.isEmpty { pieces.append(current) }
+                current = String(ch)
+            }
         }
-        return trimmed + "…"
+        if !current.isEmpty { pieces.append(current) }
+        return pieces
     }
 
     /// Measure the typographic width of `text` in logical pixels using the
-    /// banner's pixel font.
+    /// currently selected banner font.
     private func measureWidth(_ text: String) -> Int {
         guard !text.isEmpty else { return 0 }
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: SpriteAssets.pixelFont(size: fontSize),
-            .kern: 1
+            .font: activeFont.resolve(activeFontSize),
+            .kern: activeFont.isPixel ? 1 : 0
         ]
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attrs))
         let bounds = CTLineGetImageBounds(line, nil)
@@ -157,15 +181,8 @@ final class BannerRibbon: SKSpriteNode {
 
     // MARK: - Pass 1: flat banner
 
-    private struct RGBA { var r, g, b, a: UInt8 }
-
-    private let bodyColor    = RGBA(r: 0xFB, g: 0xEE, b: 0xC8, a: 0xFF) // cream
-    private let stripeColor  = RGBA(r: 0xE4, g: 0x3A, b: 0x3A, a: 0xFF) // red
-    private let borderDark   = RGBA(r: 0x6B, g: 0x21, b: 0x21, a: 0xFF) // dark red
-    private let shadowColor  = RGBA(r: 0xC4, g: 0x9A, b: 0x6C, a: 0xFF) // tan shadow
-    private let textColor    = RGBA(r: 0x1F, g: 0x12, b: 0x12, a: 0xFF) // near-black
-
     private func renderFlatBanner() -> [UInt8] {
+        let theme = activeTheme
         let w = bitmapWidth, h = bitmapHeight
         let bodyTop = h - 3
         let bodyBottom = 2
@@ -180,12 +197,12 @@ final class BannerRibbon: SKSpriteNode {
                 let isLeftFringe = (x == 0)
                 let color: RGBA
                 if isTopBorder || isBottomBorder || isRightFringe || isLeftFringe {
-                    color = borderDark
+                    color = theme.border
                 } else if y == bodyBottom + 1 {
-                    color = shadowColor
+                    color = theme.shadow
                 } else {
                     let stripePhase = (x - y) % 8
-                    color = (stripePhase == 0 || stripePhase == 1) ? stripeColor : bodyColor
+                    color = (stripePhase == 0 || stripePhase == 1) ? theme.stripe : theme.body
                 }
                 writePixel(&buf, x: x, y: y, w: w, h: h, color: color)
             }
@@ -197,7 +214,7 @@ final class BannerRibbon: SKSpriteNode {
             for y in 0..<h {
                 guard textMask[x + y * w] else { continue }
                 guard y >= bodyBottom + 1 && y <= bodyTop - 1 else { continue }
-                writePixel(&buf, x: x, y: y, w: w, h: h, color: textColor)
+                writePixel(&buf, x: x, y: y, w: w, h: h, color: theme.text)
             }
         }
 
@@ -221,13 +238,15 @@ final class BannerRibbon: SKSpriteNode {
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
 
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: SpriteAssets.pixelFont(size: fontSize),
+            .font: activeFont.resolve(activeFontSize),
             .foregroundColor: NSColor.white,
-            .kern: 1
+            .kern: activeFont.isPixel ? 1 : 0
         ]
 
         let bodyCenterY = CGFloat(2 + (h - 3 - 2)) / 2 + 1
-        let lineHeight: CGFloat = 10 // 8px glyph + 2px gap
+        // Pixel fonts are 8px tall (8pt glyph + 2px gap). Vector fonts are taller —
+        // give them a bit more headroom between lines.
+        let lineHeight: CGFloat = activeFont.isPixel ? 10 : 13
 
         for (i, lineText) in lines.enumerated() where !lineText.isEmpty {
             let str = NSAttributedString(string: lineText, attributes: attrs)

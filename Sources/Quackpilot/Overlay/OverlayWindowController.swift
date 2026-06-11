@@ -61,6 +61,17 @@ final class OverlayWindowController: NSWindowController {
     }
 
     private func updatePassthrough() {
+        // Fast path: when no plane is flying there's nothing interactive on
+        // this overlay, so we can skip the hit-test entirely and just make
+        // sure the window stays click-through. Saves the ~30 Hz cursor +
+        // node-bounds math while the app is idle in the menu bar.
+        guard scene.hasActiveFlight else {
+            if !overlayWindow.ignoresMouseEvents {
+                overlayWindow.ignoresMouseEvents = true
+            }
+            return
+        }
+
         let mouseScreen = NSEvent.mouseLocation
         guard let screen = overlayWindow.screen else { return }
         let frame = screen.frame

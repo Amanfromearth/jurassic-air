@@ -5,9 +5,14 @@ final class PlaneScene: SKScene {
     private var activeFlight: ActiveFlight?
     private let audio = PlaneAudioPlayer()
 
+    /// Read by the overlay controller's cursor-passthrough poll so it can skip
+    /// the per-tick hit-test math when there's no plane on screen.
+    var hasActiveFlight: Bool { activeFlight != nil }
+
     private struct ActiveFlight {
         let event: ReminderEvent
         let plane: PlaneNode
+        let rope: SKSpriteNode
         let banner: BannerRibbon
         let startX: CGFloat
         let endX: CGFloat
@@ -17,6 +22,7 @@ final class PlaneScene: SKScene {
     func spawn(event: ReminderEvent) {
         if let existing = activeFlight {
             existing.plane.removeFromParent()
+            existing.rope.removeFromParent()
             existing.banner.removeFromParent()
             activeFlight = nil
         }
@@ -25,8 +31,15 @@ final class PlaneScene: SKScene {
         let plane = PlaneNode()
         let banner = BannerRibbon(text: event.title.uppercased())
 
+        // The rope sits between the banner and the plane — anchored at its RIGHT
+        // edge so its right tip meets the plane's rope point, with the body
+        // trailing LEFT toward the banner. Drawn as a plain coloured sprite the
+        // same colour as QuakPit's CSS rope (rgba(35,35,35,0.78)).
+        let rope = SKSpriteNode(color: SpriteAssets.ropeColor, size: .zero)
+        rope.anchorPoint = CGPoint(x: 1.0, y: 0.5)
+
         // The supplied sprite already faces RIGHT, so we fly LEFT → RIGHT and
-        // do NOT mirror. The rope sits on the left (trailing) side of the plane.
+        // do NOT mirror.
         let scale = CGFloat(AppSettings.shared.displayScale)
         plane.setScale(scale)
         banner.setScale(scale)
@@ -40,19 +53,29 @@ final class PlaneScene: SKScene {
         plane.zPosition = 10
         addChild(plane)
 
+        // Rope BEHIND the plane so its right end visually tucks into the fuselage,
+        // but in front of the banner (since the banner trails behind).
+        rope.zPosition = 9.5
+        addChild(rope)
+
         banner.zPosition = 9
         addChild(banner)
 
         activeFlight = ActiveFlight(
             event: event,
             plane: plane,
+            rope: rope,
             banner: banner,
             startX: startX,
             endX: endX,
             paused: false
         )
 
-        audio.start()
+        // Match the audio's mid-flight one-shot to the actual crossing duration.
+        let speedMultiplier = SpeedCatalog.preset(id: AppSettings.shared.speedPreset).multiplier
+        let speedPx = max(1, AppSettings.shared.flightSpeed * speedMultiplier)
+        let crossingDuration = TimeInterval(abs(endX - startX) / CGFloat(speedPx))
+        audio.start(flightDuration: crossingDuration)
     }
 
     override func update(_ currentTime: TimeInterval) {
@@ -65,12 +88,15 @@ final class PlaneScene: SKScene {
 
         if !flight.paused {
             // Read speed each frame so the settings slider tunes flight speed live.
-            let speed = CGFloat(max(0, AppSettings.shared.flightSpeed))
+            // Apply the active speed preset multiplier (normal / fast / ultra).
+            let multiplier = SpeedCatalog.preset(id: AppSettings.shared.speedPreset).multiplier
+            let speed = CGFloat(max(0, AppSettings.shared.flightSpeed * multiplier))
             let dt = lastFrameDelta(currentTime: currentTime)
             flight.plane.position.x += speed * CGFloat(dt)
 
             if flight.plane.position.x >= flight.endX {
                 flight.plane.removeFromParent()
+                flight.rope.removeFromParent()
                 flight.banner.removeFromParent()
                 activeFlight = nil
                 audio.stop()
@@ -78,9 +104,10 @@ final class PlaneScene: SKScene {
             }
         }
 
-        // Rope tip in scene coords. The rope tip on the sprite is on its LEFT side
-        // (relX=0 of the original PNG). With no mirror, that's just -halfWidth in
-        // scaled units from the plane's center, plus the small vertical offset.
+        // Rope tip in scene coords — the point on the plane where the rope's
+        // right edge meets the fuselage. The rope is rendered at the plane's
+        // current scaled size; its right edge sits at the rope tip, body trails
+        // left, and the banner's right edge attaches at the rope's LEFT end.
         let visiblePlaneW = flight.plane.frame.width
         let visiblePlaneH = flight.plane.frame.height
         let ropeOffset = SpriteAssets.planeRopeTipOffset(
@@ -88,9 +115,14 @@ final class PlaneScene: SKScene {
         )
         let tipX = flight.plane.position.x + ropeOffset.x
         let tipY = flight.plane.position.y + ropeOffset.y
-        // Banner has right-edge anchor → its right edge sits at the rope tip,
-        // extending LEFT (trailing the plane).
-        flight.banner.position = CGPoint(x: tipX, y: tipY)
+
+        // Resize the rope each frame so the display-scale slider tunes it live.
+        let ropeSize = SpriteAssets.ropeSize(planeWidth: visiblePlaneW)
+        flight.rope.size = ropeSize
+        flight.rope.position = CGPoint(x: tipX, y: tipY)
+
+        // Banner attaches at the LEFT end of the rope (rope's left tip).
+        flight.banner.position = CGPoint(x: tipX - ropeSize.width, y: tipY)
         flight.banner.tick(currentTime: currentTime)
     }
 
@@ -132,27 +164,35 @@ final class PlaneScene: SKScene {
         }
         guard var flight = activeFlight else { return }
         let plane = flight.plane
+        let rope = flight.rope
         let banner = flight.banner
+        // Tag the deferred clear with this flight's id so a NEW spawn during
+        // the 0.7s dismiss animation isn't accidentally wiped out below.
+        let dismissedFlightId = flight.event.id
         let exit = SKAction.group([
             SKAction.moveBy(x: size.width * 0.7, y: size.height * 0.15, duration: 0.6),
             SKAction.fadeOut(withDuration: 0.6)
         ])
         plane.run(exit) {
             plane.removeFromParent()
+            rope.removeFromParent()
             banner.removeFromParent()
         }
+        rope.run(.fadeOut(withDuration: 0.6))
         banner.run(.fadeOut(withDuration: 0.6))
         flight.paused = true
         activeFlight = flight
         audio.stop()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
-            self?.activeFlight = nil
+            guard let self else { return }
+            if self.activeFlight?.event.id == dismissedFlightId {
+                self.activeFlight = nil
+            }
         }
     }
 
     func reloadAssets() {
-        if let flight = activeFlight {
-            flight.plane.texture = SpriteAssets.planeTexture()
-        }
+        SpriteAssets.reloadFromDisk()
+        activeFlight?.plane.refreshAppearance()
     }
 }
