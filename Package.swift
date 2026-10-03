@@ -2,20 +2,20 @@
 import PackageDescription
 
 let package = Package(
-    name: "Quackpilot",
+    name: "JurassicAir",
     platforms: [.macOS(.v13)],
     targets: [
         .executableTarget(
-            name: "Quackpilot",
-            path: "Sources/Quackpilot",
+            name: "JurassicAir",
+            path: "Sources/JurassicAir",
             resources: [
                 .process("Resources")
             ]
         ),
         .testTarget(
-            name: "QuackpilotTests",
-            dependencies: ["Quackpilot"],
-            path: "Tests/QuackpilotTests"
+            name: "JurassicAirTests",
+            dependencies: ["JurassicAir"],
+            path: "Tests/JurassicAirTests"
         )
     ]
 )
