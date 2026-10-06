@@ -1,6 +1,33 @@
-# Jurassic Air
+<p align="center">
+  <img src="docs/logo.png" alt="Jurassic Air logo: a pixel-art T-rex pilot with a leather cap and goggles" width="128" height="128">
+</p>
 
-A whimsical macOS desktop companion: a retro pixel-art airplane piloted by a dinosaur mascot flies across the screen pulling a wavy banner with your reminder. Hover to stop it, click the banner to open the linked URL.
+<h1 align="center">Jurassic Air</h1>
+
+<p align="center">
+  A whimsical macOS desktop companion: a retro pixel-art airplane piloted by a dinosaur mascot flies across the screen pulling a wavy banner with your reminder. Hover to stop it, click the banner to open the linked URL.
+</p>
+
+![A dino flies a red-and-white pixel plane across the desktop, pulling a banner that says "REPLY TO MOM"](docs/screenshot.png)
+
+## Download
+
+<p>
+  <a href="https://github.com/Amanfromearth/jurassic-air/releases/latest/download/JurassicAir.dmg"><b>⬇ Download JurassicAir.dmg</b></a>
+  &nbsp;·&nbsp; macOS 13 or later, Apple Silicon
+</p>
+
+1. Open the DMG and drag **JurassicAir** into **Applications**.
+2. Open the app. macOS blocks it the first time, because the app is not notarized.
+3. Go to **System Settings → Privacy & Security** and click **Open Anyway**.
+
+Or remove the quarantine flag in Terminal:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/JurassicAir.app
+```
+
+After launch, look for the dino plane icon in the menu bar.
 
 Local-personal-use app — no sandbox, no analytics, no cloud. Runs as a menu-bar agent (no Dock icon).
 
@@ -13,7 +40,8 @@ All commands run from the project root.
 ```bash
 ./build.sh              # builds release, packages JurassicAir.app
 ./build.sh --open       # ...and opens it right away
-open ./JurassicAir.app   # just launch the already-built app
+./build.sh --dmg        # ...and packages JurassicAir.dmg (drag-to-install)
+open ./JurassicAir.app  # just launch the already-built app
 ```
 
 `JurassicAir.app` is required for **Launch at login** to work — `SMAppService` needs a real bundle.

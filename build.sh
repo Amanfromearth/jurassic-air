@@ -5,6 +5,7 @@
 # Usage:
 #   ./build.sh           # release build, package into JurassicAir.app
 #   ./build.sh --open    # ...then open the app
+#   ./build.sh --dmg     # ...then package JurassicAir.dmg for download
 #
 # The first time you open the resulting .app, macOS will complain about an
 # unidentified developer. Right-click → Open (or run: xattr -d com.apple.quarantine JurassicAir.app).
@@ -126,6 +127,19 @@ echo
 echo "✓ ${APP_DIR} ready ($(du -sh "${APP_DIR}" | cut -f1))"
 echo "  Launch:                open ./${APP_DIR}"
 echo "  Auto-launch on boot:   open the settings panel (menu bar ✈ → Settings…) and toggle 'Launch at login'"
+
+if [[ "${1:-}" == "--dmg" ]]; then
+    # Drag-to-install disk image: the app plus a link to /Applications.
+    DMG="${APP_NAME}.dmg"
+    STAGE=".build/dmg"
+    rm -rf "${STAGE}" "${DMG}"
+    mkdir -p "${STAGE}"
+    cp -R "${APP_DIR}" "${STAGE}/"
+    ln -s /Applications "${STAGE}/Applications"
+    hdiutil create -volname "${DISPLAY_NAME}" -srcfolder "${STAGE}" -ov -format UDZO "${DMG}" >/dev/null
+    rm -rf "${STAGE}"
+    echo "✓ ${DMG} ready ($(du -sh "${DMG}" | cut -f1))"
+fi
 
 if [[ "${1:-}" == "--open" ]]; then
     open "./${APP_DIR}"
