@@ -25,7 +25,7 @@ final class PlaneScene: SKScene {
     private struct ActiveFlight {
         let event: ReminderEvent
         let plane: PlaneNode
-        let rope: SKSpriteNode
+        let rope: TowRope
         let banner: BannerRibbon
         let startX: CGFloat
         let endX: CGFloat
@@ -48,12 +48,7 @@ final class PlaneScene: SKScene {
         let plane = PlaneNode()
         let banner = BannerRibbon(text: event.title.uppercased())
 
-        // The rope sits between the banner and the plane — anchored at its RIGHT
-        // edge so its right tip meets the plane's rope point, with the body
-        // trailing LEFT toward the banner. Drawn as a plain coloured sprite the
-        // same colour as QuakPit's CSS rope (rgba(35,35,35,0.78)).
-        let rope = SKSpriteNode(color: SpriteAssets.ropeColor, size: .zero)
-        rope.anchorPoint = CGPoint(x: 1.0, y: 0.5)
+        let rope = TowRope()
 
         // The supplied sprite already faces RIGHT, so we fly LEFT → RIGHT and
         // do NOT mirror.
@@ -132,10 +127,7 @@ final class PlaneScene: SKScene {
             }
         }
 
-        // Rope tip in scene coords — the point on the plane where the rope's
-        // right edge meets the fuselage. The rope is rendered at the plane's
-        // current scaled size; its right edge sits at the rope tip, body trails
-        // left, and the banner's right edge attaches at the rope's LEFT end.
+        // Keep the cord tied to the fuselage and to the waving cloth.
         let visiblePlaneW = flight.plane.frame.width
         let visiblePlaneH = flight.plane.frame.height
         let ropeOffset = SpriteAssets.planeRopeTipOffset(
@@ -144,14 +136,15 @@ final class PlaneScene: SKScene {
         let tipX = flight.plane.position.x + ropeOffset.x
         let tipY = flight.plane.position.y + ropeOffset.y
 
-        // Resize the rope each frame so the display-scale slider tunes it live.
         let ropeSize = SpriteAssets.ropeSize(planeWidth: visiblePlaneW)
-        flight.rope.size = ropeSize
-        flight.rope.position = CGPoint(x: tipX, y: tipY)
-
-        // Banner attaches at the LEFT end of the rope (rope's left tip).
         flight.banner.position = CGPoint(x: tipX - ropeSize.width, y: tipY)
         flight.banner.tick(currentTime: currentTime)
+        flight.rope.update(
+            planeTip: CGPoint(x: tipX, y: tipY),
+            bannerTip: flight.banner.ropeAttachmentPoint,
+            scale: scale,
+            currentTime: currentTime
+        )
     }
 
     private var lastFrameTime: TimeInterval = 0

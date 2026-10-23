@@ -35,6 +35,29 @@ final class PlaneNodeTests: XCTestCase {
         XCTAssertEqual(plane.children.count, originalChildCount)
     }
 
+    func testSwitchingAircraftRepositionsAndRestoresPropeller() {
+        let settings = AppSettings.shared
+        let original = settings.flierColor
+        defer { settings.flierColor = original }
+        settings.flierColor = "red"
+        let plane = PlaneNode()
+        let blade = plane.children.first { $0.zPosition == 3 }!
+        let standardPosition = blade.position
+
+        settings.flierColor = "military"
+        plane.refreshAppearance()
+        XCTAssertLessThan(blade.position.x, standardPosition.x)
+        XCTAssertEqual(blade.position.y, standardPosition.y)
+        let refreshedPosition = blade.position
+        let fighter = PlaneNode()
+        let fighterBlade = fighter.children.first { $0.zPosition == 3 }!
+        XCTAssertEqual(fighterBlade.position, refreshedPosition)
+
+        settings.flierColor = "red"
+        plane.refreshAppearance()
+        XCTAssertEqual(blade.position, standardPosition)
+    }
+
     func testRopeTipPositionAccountsForPlanePosition() {
         let plane = PlaneNode()
         plane.position = CGPoint(x: 500, y: 300)

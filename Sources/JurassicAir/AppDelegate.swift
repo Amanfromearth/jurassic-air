@@ -65,7 +65,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func toggleSettingsPanel() {
         if let win = settingsWindow, win.isVisible {
-            win.orderOut(nil)
+            win.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
             return
         }
         // Reuse the existing window AND hosting controller across close/reopen
@@ -76,16 +77,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             win = existing
         } else {
             win = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 940, height: 720),
-                styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+                contentRect: NSRect(x: 0, y: 0, width: 900, height: 680),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                 backing: .buffered, defer: false
             )
             win.titlebarAppearsTransparent = true
-            win.titleVisibility = .hidden
+            win.titleVisibility = .visible
+            win.contentMinSize = NSSize(width: 760, height: 560)
+            win.toolbarStyle = .unified
             let panel = SettingsPanelView()
                 .environmentObject(AppSettings.shared)
             win.title = "Jurassic Air Settings"
             win.contentViewController = NSHostingController(rootView: panel)
+            win.setContentSize(NSSize(width: 900, height: 680))
             win.isReleasedWhenClosed = false
             settingsWindow = win
         }

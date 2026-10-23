@@ -24,50 +24,32 @@ struct CustomRemindersListView: View {
     }()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsCard {
-                FormRow(
-                    "Custom reminders",
-                    subtitle: "\(store.reminders.count) reminder\(store.reminders.count == 1 ? "" : "s")",
-                    isFirst: true
-                ) {
-                    Button {
-                        showingAddSheet = true
-                    } label: {
-                        Label("Add", systemImage: "plus")
-                            .labelStyle(.titleAndIcon)
+        Form {
+            Section {
+                LabeledContent("Custom reminders", value: "\(store.reminders.count)")
+                Button { showingAddSheet = true } label: { Label("Add Reminder…", systemImage: "plus") }
+            }
+            if store.reminders.isEmpty {
+                Section {
+                    VStack(spacing: 10) {
+                        Image(systemName: "bell.badge")
+                            .font(.system(size: 30, weight: .light))
+                            .foregroundStyle(.secondary)
+                        Text("No Reminders").font(.headline)
+                        Text("Add a reminder and a plane will bring it to you.")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
                     }
-                    .controlSize(.regular)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 28)
                 }
-
-                if store.reminders.isEmpty {
-                    FormRowFullWidth {
-                        VStack(spacing: 8) {
-                            Image(systemName: "bell.badge")
-                                .font(.system(size: 26, weight: .regular))
-                                .foregroundStyle(.secondary)
-                            Text("No reminders yet")
-                                .font(.system(size: 13, weight: .medium))
-                            Text("Add a reminder to schedule a flyover at the time you choose.")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                            Button("Add Reminder") { showingAddSheet = true }
-                                .buttonStyle(.borderedProminent)
-                                .padding(.top, 4)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                    }
-                } else {
-                    // The header row above is always first, so every
-                    // reminder row gets a divider.
-                    ForEach(store.reminders) { reminder in
-                        row(for: reminder)
-                    }
+            } else {
+                Section("Scheduled") {
+                    ForEach(store.reminders) { reminder in row(for: reminder) }
                 }
             }
         }
+        .formStyle(.grouped)
         .sheet(isPresented: $showingAddSheet) {
             CustomReminderFormView(
                 existing: nil,
@@ -108,8 +90,7 @@ struct CustomRemindersListView: View {
 
     @ViewBuilder
     private func row(for r: CustomReminder) -> some View {
-        FormRowFullWidth {
-            HStack(spacing: 12) {
+        HStack(spacing: 12) {
                 Toggle("", isOn: Binding(
                     get: { r.enabled },
                     set: { store.setEnabled(id: r.id, $0) }
@@ -161,7 +142,6 @@ struct CustomRemindersListView: View {
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { editingReminder = r }
             .accessibilityAction(named: "Edit") { editingReminder = r }
-        }
     }
 
     /// "Daily · next today 9:00 AM", "Once · done", "Every 5 min · paused".

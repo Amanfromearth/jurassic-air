@@ -2,55 +2,81 @@ import XCTest
 import AppKit
 @testable import JurassicAir
 
-/// Smoke tests for the diff-based rebuild. We can't fake NSScreen instances
-/// in unit tests (NSScreen is opaque + system-owned), so these tests just
-/// confirm the contract at the boundaries reachable headlessly.
 final class ScreenManagerTests: XCTestCase {
+    private let primary = CGRect(x: 0, y: 0, width: 1440, height: 900)
 
-    func testStartCreatesASingleOverlayController() {
+    func testCursorSelectsExternalDisplayInsteadOfPrimary() {
+        let external = CGRect(x: 1440, y: 0, width: 2560, height: 1440)
+        XCTAssertEqual(ScreenManager.screenIndex(containing: CGPoint(x: 1800, y: 500),
+                                                frames: [primary, external]), 1)
+    }
+
+    func testDisplaysToLeftAboveAndBelowPrimary() {
+        let frames = [primary,
+                      CGRect(x: -1920, y: 0, width: 1920, height: 1080),
+                      CGRect(x: 0, y: 900, width: 1920, height: 1080),
+                      CGRect(x: 0, y: -1080, width: 1920, height: 1080)]
+        for (point, expected) in [(CGPoint(x: -800, y: 400), 1),
+                                  (CGPoint(x: 800, y: 1200), 2),
+                                  (CGPoint(x: 800, y: -400), 3)] {
+            XCTAssertEqual(ScreenManager.screenIndex(containing: point, frames: frames), expected)
+        }
+    }
+
+    func testSharedEdgeSelectsOnlyOneDisplay() {
+        let external = CGRect(x: 1440, y: 0, width: 1920, height: 1080)
+        XCTAssertEqual(ScreenManager.screenIndex(containing: CGPoint(x: 1440, y: 300),
+                                                frames: [primary, external]), 1)
+    }
+
+    func testCursorOutsideDisplaysFallsBackToPrimary() {
+        XCTAssertEqual(ScreenManager.screenIndex(containing: CGPoint(x: -5000, y: 5000),
+                                                frames: [primary]), 0)
+        XCTAssertNil(ScreenManager.screenIndex(containing: .zero, frames: []))
+    }
+
+    func testStartCreatesOnlyTheCursorDisplaysOverlay() {
         let manager = ScreenManager()
         manager.start()
-        // One overlay pinned to the built-in (or menu-bar) display, regardless
-        // of how many screens are attached.
+        defer { manager.controllers.forEach { $0.close() } }
+        XCTAssertEqual(manager.controllers.count, NSScreen.screens.isEmpty ? 0 : 1)
+        manager.start()
         XCTAssertEqual(manager.controllers.count, NSScreen.screens.isEmpty ? 0 : 1)
     }
 
-    func testControllerForMainScreenReturnsSomethingWhenScreensExist() {
+    func testRepeatedFlightsReuseTheSameDisplayController() throws {
+        guard let screen = NSScreen.screens.first else { throw XCTSkip("Requires a connected display") }
         let manager = ScreenManager()
         manager.start()
-        guard !NSScreen.screens.isEmpty else {
-            return // headless host with no screens — skip
-        }
-        XCTAssertNotNil(manager.controllerForMainScreen())
+        defer { manager.controllers.forEach { $0.close() } }
+        let point = CGPoint(x: screen.frame.midX, y: screen.frame.midY)
+        let first = try XCTUnwrap(manager.controllerForCursorScreen(at: point))
+        let second = manager.controllerForCursorScreen(at: point)
+        XCTAssertIdentical(first, second)
+        NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        XCTAssertIdentical(first, manager.controllerForCursorScreen(at: point))
     }
 
-    func testControllerForMainScreenPicksPrimaryDisplay() {
+    func testDifferentDisplaysKeepIndependentOverlays() throws {
+        let screens = NSScreen.screens
+        guard screens.count > 1 else { throw XCTSkip("Requires two connected displays") }
         let manager = ScreenManager()
         manager.start()
-        guard let primary = NSScreen.screens.first else {
-            return // no screens attached
-        }
-        let picked = manager.controllerForMainScreen()
-        XCTAssertEqual(picked?.overlayWindow.screen, primary,
-                       "main-screen controller should be the one attached to NSScreen.screens.first")
-    }
-
-    func testRebuildIsIdempotent() {
-        // Triggering didChangeScreenParameters without any actual screen change
-        // shouldn't tear down existing controllers (the diff finds all current
-        // screens already present).
-        let manager = ScreenManager()
-        manager.start()
-        let firstControllers = manager.controllers
-        NotificationCenter.default.post(
-            name: NSApplication.didChangeScreenParametersNotification,
-            object: nil
-        )
-        // The controller instances should be identical objects (kept, not recreated).
-        XCTAssertEqual(manager.controllers.count, firstControllers.count)
-        for (a, b) in zip(manager.controllers, firstControllers) {
-            XCTAssertIdentical(a, b,
-                               "unchanged screens should keep their controller instances")
-        }
+        defer { manager.controllers.forEach { $0.close() } }
+        let firstFrame = screens[0].frame
+        let secondFrame = screens[1].frame
+        let first = try XCTUnwrap(manager.controllerForCursorScreen(
+            at: CGPoint(x: firstFrame.midX, y: firstFrame.midY)))
+        let second = try XCTUnwrap(manager.controllerForCursorScreen(
+            at: CGPoint(x: secondFrame.midX, y: secondFrame.midY)))
+        XCTAssertFalse(first === second)
+        XCTAssertEqual(first.overlayWindow.frame, firstFrame)
+        XCTAssertEqual(second.overlayWindow.frame, secondFrame)
+        XCTAssertGreaterThanOrEqual(manager.controllers.count, 2)
+        NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        XCTAssertEqual(first.overlayWindow.frame, firstFrame)
+        XCTAssertEqual(second.overlayWindow.frame, secondFrame)
+        XCTAssertIdentical(first, manager.controllerForCursorScreen(
+            at: CGPoint(x: firstFrame.midX, y: firstFrame.midY)))
     }
 }

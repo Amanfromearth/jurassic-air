@@ -120,6 +120,16 @@ final class BannerRibbon: SKSpriteNode {
         alphaUniform.floatValue = Float(alpha)
     }
 
+    /// Actual center of the waving rightmost column, in the parent's coordinates.
+    /// Use the shader's quantized offset so the cord stays attached to the cloth.
+    var ropeAttachmentPoint: CGPoint {
+        let column = Float(bitmapWidth - 1)
+        let phase = timeUniform.floatValue * frequencyUniform.floatValue
+            + column * phaseStepUniform.floatValue
+        let offset = floor(amplitudeUniform.floatValue * sin(phase) + 0.5)
+        return convert(CGPoint(x: -pixelScale / 2, y: CGFloat(offset) * pixelScale), to: parent ?? self)
+    }
+
     // MARK: - Wave shader
 
     private let timeUniform = SKUniform(name: "u_wave_time", float: 0)

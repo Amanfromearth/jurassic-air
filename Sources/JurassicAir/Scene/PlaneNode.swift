@@ -36,10 +36,6 @@ final class PlaneNode: SKSpriteNode {
         // plane base pixel-for-pixel.
         let bladeHub = CGPoint(x: 0.945, y: 0.438)
         blade.anchorPoint = bladeHub
-        blade.position = CGPoint(
-            x: (bladeHub.x - 0.5) * displaySize.width,
-            y: (bladeHub.y - 0.5) * displaySize.height
-        )
         blade.zPosition = 3
 
         super.init(texture: planeTexture, color: .clear, size: displaySize)
@@ -47,6 +43,7 @@ final class PlaneNode: SKSpriteNode {
 
         addChild(head)
         addChild(blade)
+        positionPropeller()
 
         startIdleBob()
         startBladeSpin()
@@ -81,6 +78,15 @@ final class PlaneNode: SKSpriteNode {
         texture = SpriteAssets.planeBaseTexture(colorId: settings.flierColor)
         head.texture = SpriteAssets.headTexture(headId: settings.flierHead)
         blade.texture = SpriteAssets.bladeTexture()
+        positionPropeller()
+    }
+
+    private func positionPropeller() {
+        let offset = FlierCatalog.color(id: AppSettings.shared.flierColor).propellerOffset
+        blade.position = CGPoint(
+            x: (blade.anchorPoint.x - 0.5 + offset.x / 1088) * size.width,
+            y: (blade.anchorPoint.y - 0.5 + offset.y / 1088) * size.height
+        )
     }
 
     func ropeTipPosition() -> CGPoint {
