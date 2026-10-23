@@ -14,7 +14,6 @@ final class ScreenManager {
 
     func start() {
         guard observer == nil else { return }
-        _ = controllerForCursorScreen()
         observer = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -34,7 +33,15 @@ final class ScreenManager {
 
         let controller = OverlayWindowController(screen: screens[index])
         overlays[id] = controller
-        controller.show()
+        controller.onIdle = { [weak self, weak controller] in
+            // Let the audio fade finish, then release the display's flight
+            // Metal surface. A replacement flight cancels this eviction.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self, weak controller] in
+                guard let self, let controller, !controller.scene.hasActiveFlight,
+                      self.overlays[id] === controller else { return }
+                self.overlays.removeValue(forKey: id)?.close()
+            }
+        }
         return controller
     }
 
@@ -53,10 +60,8 @@ final class ScreenManager {
         }
         for screen in screens {
             guard let id = screen.displayID, let controller = overlays[id] else { continue }
-            if controller.overlayWindow.frame != screen.frame {
-                controller.screenDidChange(to: screen)
-            }
-            controller.show()
+            controller.screenDidChange(to: screen)
+            if controller.scene.hasActiveFlight { controller.show() }
         }
     }
 }

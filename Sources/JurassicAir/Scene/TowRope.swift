@@ -6,6 +6,9 @@ final class TowRope: SKNode {
     private let cord = SKShapeNode()
     private let fibers = SKShapeNode()
     private var startTime: TimeInterval?
+    private var lastGeometryTime: TimeInterval = -.infinity
+    private var lastEnd: CGPoint?
+    private var lastScale: CGFloat?
 
     override init() {
         super.init()
@@ -27,11 +30,19 @@ final class TowRope: SKNode {
         let time = CGFloat(currentTime - (startTime ?? currentTime))
         position = planeTip
         let end = CGPoint(x: bannerTip.x - planeTip.x, y: bannerTip.y - planeTip.y)
+        // Move with the plane at display rate, but avoid retessellating three
+        // shape paths twice per visual sample. Endpoint changes stay immediate.
+        let endpointMoved = lastEnd.map { hypot(end.x - $0.x, end.y - $0.y) > 0.1 } ?? true
+        guard currentTime - lastGeometryTime >= 1.0 / 30.0
+                || endpointMoved || scale != lastScale else { return }
+        lastGeometryTime = currentTime
+        lastEnd = end
+        lastScale = scale
         let length = hypot(end.x, end.y)
         let sag = min(length * 0.11, 10 * scale)
         let path = CGMutablePath()
         let twist = CGMutablePath()
-        let segments = 40
+        let segments = 16
         var previous = CGPoint.zero
 
         for index in 0...segments {

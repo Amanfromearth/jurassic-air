@@ -1,75 +1,69 @@
 import AppKit
-import Foundation
+import Combine
 
-/// Polls the CustomRemindersStore at a fixed interval and dispatches any reminders
-/// whose next-due time has passed. Polling beats per-reminder Timers because:
-///   - reminders can be added/changed/disabled live without re-arming anything
-///   - missing a fire while the Mac was asleep just means we fire on next wake tick
-///   - one Timer is cheaper than N Timers when the user has many reminders
-///
-/// To make this reliable for a menu-bar agent we also tick on:
-///   - system wake (NSWorkspace.didWakeNotification)
-///   - app activation (NSApplication.didBecomeActiveNotification — fires when the
-///     user clicks the menu bar icon, which is the most common "we got CPU back"
-///     signal for an LSUIElement app that's been napped)
+/// Arms one deadline for the next reminder. Store edits, clock changes, and
+/// wake notifications re-evaluate it; there is no periodic polling when idle.
 final class ReminderScheduler {
     weak var dispatcher: ReminderDispatcher?
-    private var timer: Timer?
+    private let store: CustomRemindersStore
+    private let now: () -> Date
+    private let deadline = DeadlineTimer()
+    private var subscription: AnyCancellable?
     private var observers: [NSObjectProtocol] = []
-    /// 5 s polling so `everySeconds(5)` reminders fire close to on-time. The
-    /// Stepper in the form enforces a 5 s minimum so we don't undershoot.
-    private let tickInterval: TimeInterval = 5
+    private(set) var isRunning = false
+    var nextFireDate: Date? { deadline.nextFireDate }
+
+    init(store: CustomRemindersStore = .shared, now: @escaping () -> Date = Date.init) {
+        self.store = store
+        self.now = now
+    }
 
     func start() {
         stop()
-        // Initial tick so a freshly-added past-due reminder fires right away.
-        tick()
-        let t = Timer.scheduledTimer(withTimeInterval: tickInterval, repeats: true) { [weak self] _ in
-            self?.tick()
+        isRunning = true
+        // Published delivers the new snapshot before the store property changes.
+        subscription = store.$reminders.sink { [weak self] reminders in
+            self?.schedule(reminders)
         }
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
-
-        installCatchupObservers()
+        observers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.processDueReminders() })
+        for name in [NSApplication.didBecomeActiveNotification,
+                     Notification.Name.NSSystemClockDidChange] {
+            observers.append(NotificationCenter.default.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in self?.processDueReminders() })
+        }
+        processDueReminders()
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
-        for token in observers {
-            NotificationCenter.default.removeObserver(token)
-            NSWorkspace.shared.notificationCenter.removeObserver(token)
+        isRunning = false
+        subscription?.cancel()
+        subscription = nil
+        deadline.cancel()
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
         observers.removeAll()
     }
 
-    private func installCatchupObservers() {
-        let wake = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in self?.tick() }
-        let active = NotificationCenter.default.addObserver(
-            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
-        ) { [weak self] _ in self?.tick() }
-        observers = [wake, active]
-    }
-
-    private func tick() {
-        let now = Date()
-        let snapshot = CustomRemindersStore.shared.reminders
-        guard !snapshot.isEmpty else { return }
-        let due = snapshot.filter { $0.isDue(at: now) }
-        guard !due.isEmpty else { return }
-        Log.write("Tick \(snapshot.count) reminders, \(due.count) due")
-        for reminder in due {
-            fire(reminder, at: now)
+    func processDueReminders() {
+        guard isRunning else { return }
+        let date = now()
+        for reminder in store.reminders where reminder.isDue(at: date) {
+            dispatcher?.fire(ReminderEvent(title: reminder.title, urlString: reminder.urlString))
+            store.markFired(id: reminder.id, at: date)
         }
+        schedule(store.reminders)
     }
 
-    private func fire(_ reminder: CustomReminder, at now: Date) {
-        Log.write("Firing reminder '\(reminder.title)' (\(reminder.repeatRule.label)) scheduled \(reminder.firstFireAt)")
-        let event = ReminderEvent(title: reminder.title, urlString: reminder.urlString)
-        dispatcher?.fire(event)
-        CustomRemindersStore.shared.markFired(id: reminder.id, at: now)
+    private func schedule(_ reminders: [CustomReminder]) {
+        guard isRunning else { return }
+        let date = now()
+        let next = reminders.compactMap { $0.nextDueDate(now: date) }.min()
+        deadline.schedule(at: next) { [weak self] in self?.processDueReminders() }
     }
 
     deinit { stop() }

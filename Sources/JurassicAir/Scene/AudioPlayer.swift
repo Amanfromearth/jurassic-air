@@ -7,10 +7,7 @@ final class PlaneAudioPlayer {
     private var engine: AVAudioPlayer?
     private var voice: AVAudioPlayer?
     private var voiceWorkItem: DispatchWorkItem?
-
-    init() {
-        prepareEngine()
-    }
+    private var engineStopWorkItem: DispatchWorkItem?
 
     private func prepareEngine() {
         guard let url = Bundle.module.url(forResource: "plane", withExtension: "mp3") else {
@@ -49,7 +46,11 @@ final class PlaneAudioPlayer {
     /// Start the engine loop and schedule the voice one-shot to fire midway
     /// through `flightDuration` seconds.
     func start(flightDuration: TimeInterval = 8) {
+        engineStopWorkItem?.cancel()
+        engineStopWorkItem = nil
         guard AppSettings.shared.audioEnabled else { return }
+        if engine == nil { prepareEngine() }
+        engine?.setVolume(0.45, fadeDuration: 0)
         if let e = engine, !e.isPlaying {
             e.currentTime = 0
             e.volume = 0.45
@@ -78,13 +79,26 @@ final class PlaneAudioPlayer {
     func stop() {
         voiceWorkItem?.cancel()
         voiceWorkItem = nil
-        if let v = voice, v.isPlaying { v.stop() }
+        voice?.stop()
+        voice = nil
+        engineStopWorkItem?.cancel()
 
         guard let e = engine, e.isPlaying else { return }
         let fadeDuration: TimeInterval = 0.35
         e.setVolume(0, fadeDuration: fadeDuration)
-        DispatchQueue.main.asyncAfter(deadline: .now() + fadeDuration + 0.05) { [weak e] in
+        let work = DispatchWorkItem { [weak self, weak e] in
             e?.stop()
+            self?.engine = nil
+            self?.engineStopWorkItem = nil
         }
+        engineStopWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + fadeDuration + 0.05, execute: work)
+    }
+
+    deinit {
+        voiceWorkItem?.cancel()
+        engineStopWorkItem?.cancel()
+        engine?.stop()
+        voice?.stop()
     }
 }

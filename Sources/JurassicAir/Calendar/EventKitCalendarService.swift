@@ -90,7 +90,7 @@ final class EventKitCalendarService: CalendarService {
 
         let now = Date()
         let pred = store.predicateForEvents(
-            withStart: now,
+            withStart: now.addingTimeInterval(-90),
             end: now.addingTimeInterval(horizon),
             calendars: calendars
         )

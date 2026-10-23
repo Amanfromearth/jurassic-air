@@ -17,6 +17,9 @@ final class PlaneScene: SKScene {
     /// ends. The overlay controller uses it to run cursor tracking only
     /// while something is on screen.
     var onFlightActivityChange: ((Bool) -> Void)?
+    var onFrameUpdate: (() -> Void)?
+    var onContentHeightChange: ((CGFloat) -> Void)?
+    private var reportedContentHeight: CGFloat = 0
 
     /// Read by the overlay controller's cursor-passthrough poll so it can skip
     /// the per-tick hit-test math when there's no plane on screen.
@@ -35,6 +38,8 @@ final class PlaneScene: SKScene {
     func spawn(event: ReminderEvent) {
         // The render loop sleeps while idle (see `update`). Wake it up.
         idleFrames = 0
+        lastFrameTime = 0
+        isDismissing = false
         view?.isPaused = false
 
         if let existing = activeFlight {
@@ -55,12 +60,15 @@ final class PlaneScene: SKScene {
         let scale = CGFloat(AppSettings.shared.displayScale)
         plane.setScale(scale)
         banner.setScale(scale)
+        reportContentHeight(plane: plane, banner: banner)
 
         // Compute visible plane width using the scaled frame.
         let visiblePlaneW = plane.frame.width
         let startX = -visiblePlaneW * 0.6
         let endX = size.width + visiblePlaneW * 0.6
-        let y = size.height * CGFloat.random(in: 0.55...0.85)
+        let margin = SpriteAssets.planeDisplayWidth * scale / 2 + 12
+        let y = size.height > margin * 2
+            ? CGFloat.random(in: margin...(size.height - margin)) : size.height / 2
         plane.position = CGPoint(x: startX, y: y)
         plane.zPosition = 10
         addChild(plane)
@@ -109,12 +117,12 @@ final class PlaneScene: SKScene {
         flight.plane.setScale(scale)
         flight.banner.setScale(scale)
 
+        let dt = lastFrameDelta(currentTime: currentTime)
         if !flight.paused {
             // Read speed each frame so the settings slider tunes flight speed live.
             // Apply the active speed preset multiplier (normal / fast / ultra).
             let multiplier = SpeedCatalog.preset(id: AppSettings.shared.speedPreset).multiplier
             let speed = CGFloat(max(0, AppSettings.shared.flightSpeed * multiplier))
-            let dt = lastFrameDelta(currentTime: currentTime)
             flight.plane.position.x += speed * CGFloat(dt)
 
             if flight.plane.position.x >= flight.endX {
@@ -125,6 +133,13 @@ final class PlaneScene: SKScene {
                 audio.stop()
                 return
             }
+        }
+
+        flight.banner.tick(currentTime: currentTime)
+        reportContentHeight(plane: flight.plane, banner: flight.banner)
+        let margin = max(flight.plane.frame.height, flight.banner.frame.height) / 2 + 12
+        if size.height > margin * 2 {
+            flight.plane.position.y = min(max(flight.plane.position.y, margin), size.height - margin)
         }
 
         // Keep the cord tied to the fuselage and to the waving cloth.
@@ -138,7 +153,6 @@ final class PlaneScene: SKScene {
 
         let ropeSize = SpriteAssets.ropeSize(planeWidth: visiblePlaneW)
         flight.banner.position = CGPoint(x: tipX - ropeSize.width, y: tipY)
-        flight.banner.tick(currentTime: currentTime)
         flight.rope.update(
             planeTip: CGPoint(x: tipX, y: tipY),
             bannerTip: flight.banner.ropeAttachmentPoint,
@@ -146,6 +160,25 @@ final class PlaneScene: SKScene {
             currentTime: currentTime
         )
     }
+
+    private func reportContentHeight(plane: PlaneNode, banner: BannerRibbon) {
+        let height = max(plane.frame.height, banner.frame.height) + 24
+        guard abs(height - reportedContentHeight) > 0.5 else { return }
+        reportedContentHeight = height
+        onContentHeightChange?(height)
+    }
+
+    override func didFinishUpdate() {
+        if hasActiveFlight { onFrameUpdate?() }
+    }
+
+    func setHoverPaused(_ paused: Bool) {
+        guard var flight = activeFlight, !isDismissing, flight.paused != paused else { return }
+        flight.paused = paused
+        activeFlight = flight
+    }
+
+    private var isDismissing = false
 
     private var lastFrameTime: TimeInterval = 0
     private func lastFrameDelta(currentTime: TimeInterval) -> TimeInterval {
@@ -172,18 +205,12 @@ final class PlaneScene: SKScene {
         }
     }
 
-    override func mouseMoved(with event: NSEvent) {
-        guard var flight = activeFlight else { return }
-        let pt = event.location(in: self)
-        flight.paused = cursorIsOverInteractive(pt)
-        activeFlight = flight
-    }
-
     private func openLinkAndDismiss(event: ReminderEvent) {
         if let url = URL(string: event.urlString) {
             NSWorkspace.shared.open(url)
         }
-        guard var flight = activeFlight else { return }
+        guard var flight = activeFlight, !isDismissing else { return }
+        isDismissing = true
         let plane = flight.plane
         let rope = flight.rope
         let banner = flight.banner

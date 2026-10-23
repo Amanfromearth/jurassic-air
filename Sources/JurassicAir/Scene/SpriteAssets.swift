@@ -47,47 +47,35 @@ enum SpriteAssets {
     private static var bladeTextureCache: SKTexture?
 
     static func planeBaseTexture(colorId: String) -> SKTexture {
-        if let t = planeTextureCache[colorId] { return t }
-        let resource = "plane-\(colorId)-base"
-        guard let url = Bundle.module.url(forResource: resource, withExtension: "png"),
-              let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
-            return SKTexture()
-        }
-        let t = SKTexture(cgImage: cg)
-        t.filteringMode = .nearest
-        planeTextureCache[colorId] = t
-        return t
+        if let texture = planeTextureCache[colorId] { return texture }
+        guard let texture = texture(named: "plane-\(colorId)-base") else { return SKTexture() }
+        planeTextureCache[colorId] = texture
+        return texture
     }
 
     static func headTexture(headId: String) -> SKTexture {
-        if let t = headTextureCache[headId] { return t }
-        let resource = "head-\(headId)"
-        guard let url = Bundle.module.url(forResource: resource, withExtension: "png"),
-              let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
-            return SKTexture()
-        }
-        let t = SKTexture(cgImage: cg)
-        t.filteringMode = .nearest
-        headTextureCache[headId] = t
-        return t
+        if let texture = headTextureCache[headId] { return texture }
+        guard let texture = texture(named: "head-\(headId)") else { return SKTexture() }
+        headTextureCache[headId] = texture
+        return texture
     }
 
     static func bladeTexture() -> SKTexture {
-        if let t = bladeTextureCache { return t }
-        guard let url = Bundle.module.url(forResource: "blade", withExtension: "png"),
-              let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
-            return SKTexture()
-        }
-        let t = SKTexture(cgImage: cg)
-        t.filteringMode = .nearest
-        bladeTextureCache = t
-        return t
+        if let texture = bladeTextureCache { return texture }
+        guard let texture = texture(named: "blade") else { return SKTexture() }
+        bladeTextureCache = texture
+        return texture
+    }
+
+    private static func texture(named name: String) -> SKTexture? {
+        guard let image = PixelArtImages.image(named: name) else { return nil }
+        let texture = SKTexture(cgImage: image)
+        texture.filteringMode = .nearest
+        return texture
     }
 
     static func reloadFromDisk() {
+        PixelArtImages.removeAll()
         planeTextureCache.removeAll()
         headTextureCache.removeAll()
         bladeTextureCache = nil

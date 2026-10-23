@@ -3,7 +3,10 @@ import AVFoundation
 
 /// Let macOS own navigation, window chrome, form spacing, and control styling.
 struct SettingsPanelView: View {
-    @State private var selection: Page? = .general
+    @AppStorage("settings.page") private var selectedPage: Page = .general
+    private var selection: Binding<Page?> {
+        Binding(get: { selectedPage }, set: { if let page = $0 { selectedPage = page } })
+    }
 
     enum Page: String, CaseIterable, Identifiable {
         case general = "General", appearance = "Appearance", sound = "Sound"
@@ -23,7 +26,7 @@ struct SettingsPanelView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $selection) {
+            List(selection: selection) {
                 SwiftUI.Section("Settings") {
                     ForEach([Page.general, .appearance, .sound]) { page in
                         Label(page.rawValue, systemImage: page.symbol).tag(page)
@@ -44,7 +47,7 @@ struct SettingsPanelView: View {
             .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 250)
         } detail: {
             detail
-                .navigationTitle((selection ?? .general).rawValue)
+                .navigationTitle(selectedPage.rawValue)
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
@@ -61,7 +64,7 @@ struct SettingsPanelView: View {
     }
 
     @ViewBuilder private var detail: some View {
-        switch selection ?? .general {
+        switch selectedPage {
         case .general: GeneralSettingsPane()
         case .appearance: AppearanceSettingsPane()
         case .sound: SoundSettingsPane()
@@ -140,7 +143,7 @@ private struct SoundSettingsPane: View {
 
 private struct AppearanceSettingsPane: View {
     @EnvironmentObject var settings: AppSettings
-    @State private var category: Category = .pilot
+    @AppStorage("settings.appearanceCategory") private var category: Category = .pilot
     enum Category: String, CaseIterable {
         case pilot = "Pilot", aircraft = "Aircraft", banner = "Banner"
     }
@@ -321,49 +324,19 @@ private struct ResourceImage: View {
 /// Bundled PNGs decoded one time. Without this, every SwiftUI body pass (for
 /// example each tick of a slider drag) read every tile image from disk again.
 private enum ResourceImageCache {
-    private static let cache = NSCache<NSString, NSImage>()
+    private static let cache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.totalCostLimit = 2 * 1024 * 1024
+        cache.countLimit = 64
+        return cache
+    }()
 
     static func image(named name: String) -> NSImage? {
         if let hit = cache.object(forKey: name as NSString) { return hit }
-        guard let url = Bundle.module.url(forResource: name, withExtension: "png"),
-              let img = NSImage(contentsOf: url) else { return nil }
-        cache.setObject(img, forKey: name as NSString)
+        guard let image = PixelArtImages.image(named: name) else { return nil }
+        let img = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+        cache.setObject(img, forKey: name as NSString, cost: image.bytesPerRow * image.height)
         return img
-    }
-}
-
-private struct ThemeSwatch: View {
-    let theme: BannerTheme
-    var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                Color(theme.body.nsColor)
-                Canvas { ctx, size in
-                    let step: CGFloat = 10
-                    var x: CGFloat = -size.height
-                    while x < size.width {
-                        let path = Path { p in
-                            p.move(to: CGPoint(x: x, y: 0))
-                            p.addLine(to: CGPoint(x: x + step / 2, y: 0))
-                            p.addLine(to: CGPoint(x: x + step / 2 + size.height, y: size.height))
-                            p.addLine(to: CGPoint(x: x + size.height, y: size.height))
-                            p.closeSubpath()
-                        }
-                        ctx.fill(path, with: .color(Color(theme.stripe.nsColor)))
-                        x += step
-                    }
-                }
-                Text("Aa")
-                    .font(.system(size: 14, weight: .heavy))
-                    .foregroundColor(Color(theme.text.nsColor))
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(Color(theme.border.nsColor), lineWidth: 1)
-            )
-        }
     }
 }
 

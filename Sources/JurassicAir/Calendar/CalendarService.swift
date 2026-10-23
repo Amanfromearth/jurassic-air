@@ -10,7 +10,7 @@ protocol CalendarService: AnyObject {
     var authorizationStatus: CalendarAuthorizationStatus { get }
     func requestAccess() async -> Bool
 
-    /// Events starting within `[now, now + horizon]`, filtered to
+    /// Events starting within `[now - 90 seconds, now + horizon]`, filtered to
     /// `selectedCalendarIdentifiers`. All-day events are filtered out.
     func upcomingEvents(within horizon: TimeInterval,
                         selectedCalendarIdentifiers: Set<String>) async -> [CalendarEvent]
