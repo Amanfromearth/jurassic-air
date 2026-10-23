@@ -124,6 +124,57 @@ final class PlaneSceneTests: XCTestCase {
         XCTAssertTrue(scene.children.isEmpty)
     }
 
+    func testCrossingTimeMatchesOnLaptopUltrawideAndSuperUltrawide() {
+        let settings = AppSettings.shared
+        let originalSpeed = settings.flightSpeed
+        let originalPreset = settings.speedPreset
+        defer {
+            settings.flightSpeed = originalSpeed
+            settings.speedPreset = originalPreset
+        }
+        settings.flightSpeed = 400
+        for preset in SpeedCatalog.presets {
+            settings.speedPreset = preset.id
+            let crossingFrames = [1440.0, 3440.0, 5120.0].map { width in
+                let scene = PlaneScene(size: CGSize(width: width, height: 360))
+                scene.spawn(event: sampleEvent())
+                var frame = 0
+                while scene.hasActiveFlight && frame < 1000 {
+                    scene.update(Double(frame) / 60 + 1)
+                    frame += 1
+                }
+                XCTAssertFalse(scene.hasActiveFlight)
+                return frame
+            }
+            XCTAssertLessThanOrEqual(crossingFrames.max()! - crossingFrames.min()!, 1,
+                                     "Crossing time must match across widths for \(preset.id)")
+        }
+    }
+
+    func testUltrawideSpeedStillRespondsToLiveControls() {
+        let settings = AppSettings.shared
+        let originalSpeed = settings.flightSpeed
+        let originalPreset = settings.speedPreset
+        defer {
+            settings.flightSpeed = originalSpeed
+            settings.speedPreset = originalPreset
+        }
+        settings.flightSpeed = 110
+        settings.speedPreset = "normal"
+        let scene = PlaneScene(size: CGSize(width: 3440, height: 360))
+        scene.spawn(event: sampleEvent())
+        let plane = scene.children.first { $0 is PlaneNode }!
+        scene.update(1)
+        let start = plane.position.x
+        scene.update(1.02)
+        let normalDistance = plane.position.x - start
+        settings.flightSpeed = 220
+        settings.speedPreset = "fast"
+        let beforeChange = plane.position.x
+        scene.update(1.04)
+        XCTAssertEqual(plane.position.x - beforeChange, normalDistance * 3, accuracy: 0.001)
+    }
+
     // MARK: - reloadAssets
 
     func testReloadAssetsClearsCachesAndDoesNotCrashWithoutFlight() {

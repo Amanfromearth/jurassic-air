@@ -30,8 +30,8 @@ final class PlaneScene: SKScene {
         let plane: PlaneNode
         let rope: TowRope
         let banner: BannerRibbon
-        let startX: CGFloat
         let endX: CGFloat
+        let speedScale: CGFloat
         var paused: Bool
     }
 
@@ -66,6 +66,9 @@ final class PlaneScene: SKScene {
         let visiblePlaneW = plane.frame.width
         let startX = -visiblePlaneW * 0.6
         let endX = size.width + visiblePlaneW * 0.6
+        // Preserve the crossing time of a 1440-point display, including the
+        // offscreen entry/exit distance. Wider displays need faster movement.
+        let speedScale = (endX - startX) / (1440 + visiblePlaneW * 1.2)
         let margin = SpriteAssets.planeDisplayWidth * scale / 2 + 12
         let y = size.height > margin * 2
             ? CGFloat.random(in: margin...(size.height - margin)) : size.height / 2
@@ -86,15 +89,13 @@ final class PlaneScene: SKScene {
             plane: plane,
             rope: rope,
             banner: banner,
-            startX: startX,
             endX: endX,
+            speedScale: speedScale,
             paused: false
         )
 
         // Match the audio's mid-flight one-shot to the actual crossing duration.
-        let speedMultiplier = SpeedCatalog.preset(id: AppSettings.shared.speedPreset).multiplier
-        let speedPx = max(1, AppSettings.shared.flightSpeed * speedMultiplier)
-        let crossingDuration = TimeInterval(abs(endX - startX) / CGFloat(speedPx))
+        let crossingDuration = TimeInterval((endX - startX) / flightSpeed(scale: speedScale))
         audio.start(flightDuration: crossingDuration)
     }
 
@@ -121,8 +122,7 @@ final class PlaneScene: SKScene {
         if !flight.paused {
             // Read speed each frame so the settings slider tunes flight speed live.
             // Apply the active speed preset multiplier (normal / fast / ultra).
-            let multiplier = SpeedCatalog.preset(id: AppSettings.shared.speedPreset).multiplier
-            let speed = CGFloat(max(0, AppSettings.shared.flightSpeed * multiplier))
+            let speed = flightSpeed(scale: flight.speedScale)
             flight.plane.position.x += speed * CGFloat(dt)
 
             if flight.plane.position.x >= flight.endX {
@@ -159,6 +159,11 @@ final class PlaneScene: SKScene {
             scale: scale,
             currentTime: currentTime
         )
+    }
+
+    private func flightSpeed(scale: CGFloat) -> CGFloat {
+        let multiplier = SpeedCatalog.preset(id: AppSettings.shared.speedPreset).multiplier
+        return CGFloat(max(1, AppSettings.shared.flightSpeed * multiplier)) * scale
     }
 
     private func reportContentHeight(plane: PlaneNode, banner: BannerRibbon) {
