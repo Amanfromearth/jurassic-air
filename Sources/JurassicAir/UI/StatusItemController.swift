@@ -1,7 +1,11 @@
 import AppKit
+import SwiftUI
 
-final class StatusItemController: NSObject, NSMenuDelegate {
+final class StatusItemController: NSObject, NSPopoverDelegate {
     private var item: NSStatusItem?
+    private let popover = NSPopover()
+    private var contextMenu: NSMenu?
+    private let model = StatusPopoverModel()
     private var onTrigger: (() -> Void)?
     private var onSpawn: (() -> Void)?
     private var onSettings: (() -> Void)?
@@ -23,18 +27,68 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             button.image = Self.makeLogoImage()
             button.imagePosition = .imageOnly
             button.imageScaling = .scaleProportionallyDown
-            button.toolTip = "Jurassic Air"
+            button.toolTip = "Jurassic Air · Upcoming reminders and quick settings"
+            button.target = self
+            button.action = #selector(togglePopover)
+            button.sendAction(on: [.leftMouseDown, .rightMouseUp])
         }
         let menu = NSMenu()
-        menu.delegate = self
         menu.addItem(withTitle: "Trigger Reminder", action: #selector(triggerAction), keyEquivalent: "2").target = self
         menu.addItem(withTitle: "Spawn Plane", action: #selector(spawnAction), keyEquivalent: "1").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(settingsAction), keyEquivalent: "4").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Jurassic Air", action: #selector(quitAction), keyEquivalent: "q").target = self
-        it.menu = menu
+        contextMenu = menu
+        popover.behavior = .transient
+        popover.animates = false
+        popover.delegate = self
         self.item = it
+        prepareContent()
+        model.start()
+    }
+
+    @objc private func togglePopover() {
+        guard let button = item?.button else { return }
+        if NSApp.currentEvent?.type == .rightMouseUp, let menu = contextMenu, let item {
+            popover.performClose(nil)
+            item.menu = menu
+            button.performClick(nil)
+            item.menu = nil
+            return
+        }
+        if popover.isShown {
+            popover.performClose(nil)
+            return
+        }
+        model.setPresented(true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+    }
+
+    private func prepareContent() {
+        popover.contentViewController = NSHostingController(rootView: StatusPopoverView(
+            model: model,
+            onPreview: { [weak self] in
+                self?.popover.performClose(nil)
+                self?.onSpawn?()
+            },
+            onSettings: { [weak self] page in
+                self?.popover.performClose(nil)
+                if let page { UserDefaults.standard.set(page.rawValue, forKey: "settings.page") }
+                self?.onSettings?()
+            },
+            onQuit: { [weak self] in self?.onQuit?() }
+        ))
+        // Resolve the first SwiftUI layout before a menu bar click needs it.
+        if let view = popover.contentViewController?.view {
+            view.layoutSubtreeIfNeeded()
+            popover.contentSize = view.fittingSize
+        }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        model.setPresented(false)
     }
 
     @objc private func triggerAction()  { onTrigger?() }
