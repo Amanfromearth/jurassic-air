@@ -30,8 +30,8 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(displayScale, forKey: "displayScale") }
     }
 
-    /// Horizontal flight speed in points/second. Read each frame so the slider tunes
-    /// live while a plane is on-screen.
+    /// Reference speed on a 1440-point display. Scaled to the flight distance so
+    /// crossing time stays consistent across monitors. Read each frame for live tuning.
     @Published var flightSpeed: Double {
         didSet { defaults.set(flightSpeed, forKey: "flightSpeed") }
     }

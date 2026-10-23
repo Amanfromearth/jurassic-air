@@ -92,14 +92,18 @@ private struct GeneralSettingsPane: View {
             } header: { Text("Startup") } footer: {
                 Text("Keep Jurassic Air in the menu bar, ready for your next reminder.")
             }
-            SwiftUI.Section("Flight") {
+            SwiftUI.Section {
                 Picker("Speed", selection: $settings.speedPreset) {
                     ForEach(SpeedCatalog.presets) { Text($0.name).tag($0.id) }
                 }
-                SettingsSlider("Flight speed", value: $settings.flightSpeed,
-                               range: 30...400, format: "%.0f pt/s")
+                SettingsSlider("Flight speed", value: Binding(
+                    get: { settings.flightSpeed / AppSettings.Defaults.flightSpeed },
+                    set: { settings.flightSpeed = $0 * AppSettings.Defaults.flightSpeed }
+                ), range: (30.0 / 110)...(400.0 / 110), format: "%.2f×")
                 SettingsSlider("Size", value: $settings.displayScale,
                                range: 0.2...1.5, format: "%.2f×")
+            } header: { Text("Flight") } footer: {
+                Text("Crossing time stays consistent across display sizes.")
             }
             SwiftUI.Section {
                 LabeledContent("Try a reminder") {
