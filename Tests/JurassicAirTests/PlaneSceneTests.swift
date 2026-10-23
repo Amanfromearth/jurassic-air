@@ -46,8 +46,7 @@ final class PlaneSceneTests: XCTestCase {
         scene.spawn(event: sampleEvent())
         let plane = scene.children.first { $0 is PlaneNode }!
         let rope = scene.children.first {
-            // The only non-plane, non-banner sprite is the rope (a plain SKSpriteNode).
-            $0 is SKSpriteNode && !($0 is PlaneNode) && !($0 is BannerRibbon)
+            $0 is TowRope
         }!
         let banner = scene.children.first { $0 is BannerRibbon }!
         XCTAssertGreaterThan(plane.zPosition, rope.zPosition,

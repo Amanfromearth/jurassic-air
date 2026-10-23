@@ -18,10 +18,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.onSettings = onSettings
         self.onQuit = onQuit
 
-        let it = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let it = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = it.button {
             button.image = Self.makeLogoImage()
             button.imagePosition = .imageOnly
+            button.imageScaling = .scaleProportionallyDown
             button.toolTip = "Jurassic Air"
         }
         let menu = NSMenu()
@@ -41,18 +42,56 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func settingsAction() { onSettings?() }
     @objc private func quitAction()     { onQuit?() }
 
-    /// Load the bundled pixel-art propeller plane and treat it as a 2x-density
-    /// template image — solid black on transparent so macOS auto-recolors it for
-    /// menu bar style (light text on dark menu bar / dark text on light menu bar).
-    private static func makeLogoImage() -> NSImage? {
-        guard let url = Bundle.module.url(forResource: "logo@2x", withExtension: "png"),
-              let image = NSImage(contentsOf: url) else {
-            return nil
+    /// A side-on propeller aircraft, drawn as a vector template at menu-bar size.
+    private static func makeLogoImage() -> NSImage {
+        let image = NSImage(size: NSSize(width: 22, height: 18), flipped: true) { _ in
+            NSColor.black.setFill()
+            NSColor.black.setStroke()
+
+            let body = NSBezierPath()
+            body.move(to: NSPoint(x: 1.5, y: 5))
+            body.line(to: NSPoint(x: 3, y: 5))
+            body.line(to: NSPoint(x: 5, y: 8.5))
+            body.line(to: NSPoint(x: 8.5, y: 8.5))
+            body.curve(to: NSPoint(x: 13, y: 8.5),
+                       controlPoint1: NSPoint(x: 9, y: 5),
+                       controlPoint2: NSPoint(x: 12, y: 5))
+            body.line(to: NSPoint(x: 16, y: 8.5))
+            body.curve(to: NSPoint(x: 18.5, y: 10),
+                       controlPoint1: NSPoint(x: 17.5, y: 8.5),
+                       controlPoint2: NSPoint(x: 18.5, y: 9))
+            body.curve(to: NSPoint(x: 16, y: 11.5),
+                       controlPoint1: NSPoint(x: 18.5, y: 11),
+                       controlPoint2: NSPoint(x: 17.5, y: 11.5))
+            body.line(to: NSPoint(x: 12, y: 11.5))
+            body.line(to: NSPoint(x: 8, y: 15))
+            body.line(to: NSPoint(x: 5.5, y: 15))
+            body.line(to: NSPoint(x: 8.5, y: 11.5))
+            body.line(to: NSPoint(x: 3, y: 10.5))
+            body.line(to: NSPoint(x: 1.5, y: 10.5))
+            body.close()
+            body.append(NSBezierPath(
+                roundedRect: NSRect(x: 9.75, y: 7, width: 2.1, height: 1.5),
+                xRadius: 0.6, yRadius: 0.6
+            ))
+            body.windingRule = .evenOdd
+            body.fill()
+
+            // A single fine propeller and a small cockpit window keep the
+            // aircraft recognizable without crowding the silhouette.
+            let propeller = NSBezierPath()
+            propeller.lineWidth = 1.25
+            propeller.lineCapStyle = .round
+            propeller.move(to: NSPoint(x: 20, y: 6.5))
+            propeller.line(to: NSPoint(x: 20, y: 13.5))
+            propeller.move(to: NSPoint(x: 18, y: 10))
+            propeller.line(to: NSPoint(x: 20, y: 10))
+            propeller.stroke()
+
+            return true
         }
-        // Loaded data is 50x36 pixels (logo@2x.png). Halve the logical size so that
-        // pixel art maps 1:1 to physical pixels on Retina displays — keeps edges crisp.
-        image.size = NSSize(width: image.size.width / 2, height: image.size.height / 2)
         image.isTemplate = true
+        image.accessibilityDescription = "Jurassic Air"
         return image
     }
 }

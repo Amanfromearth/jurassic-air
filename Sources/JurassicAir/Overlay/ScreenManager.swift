@@ -1,66 +1,71 @@
 import AppKit
 
-/// Owns a single overlay window pinned to the MacBook's built-in display
-/// (or the menu-bar screen in clamshell mode). Multi-monitor setups always
-/// render the plane on the laptop screen — that is what the user is looking
-/// at. When displays are reconfigured, the same window is reframed onto the
-/// new target screen so in-flight planes are preserved.
+/// Creates overlays as displays are used. Each flight stays on the display
+/// where it started; the next flight uses the display containing the cursor.
 final class ScreenManager {
-    private(set) var controller: OverlayWindowController?
+    private var overlays: [CGDirectDisplayID: OverlayWindowController] = [:]
     private var observer: NSObjectProtocol?
 
-    /// Exposed as an array for the few callers that broadcast to every overlay
-    /// (e.g. `reloadAssets`). There's only ever one now.
-    var controllers: [OverlayWindowController] { controller.map { [$0] } ?? [] }
+    var controllers: [OverlayWindowController] {
+        NSScreen.screens.compactMap { screen in
+            screen.displayID.flatMap { overlays[$0] }
+        }
+    }
 
     func start() {
-        rebuild()
+        guard observer == nil else { return }
+        _ = controllerForCursorScreen()
         observer = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in self?.rebuild() }
+        ) { [weak self] _ in self?.reconcileDisplays() }
     }
 
     deinit {
         if let observer { NotificationCenter.default.removeObserver(observer) }
     }
 
-    func controllerForMainScreen() -> OverlayWindowController? { controller }
+    func controllerForCursorScreen(at cursor: CGPoint = NSEvent.mouseLocation) -> OverlayWindowController? {
+        let screens = NSScreen.screens
+        guard let index = Self.screenIndex(containing: cursor, frames: screens.map(\.frame)),
+              let id = screens[index].displayID else { return nil }
+        if let existing = overlays[id] { return existing }
 
-    private func rebuild() {
-        guard let target = Self.targetScreen() else {
-            controller?.close()
-            controller = nil
-            return
-        }
-        if let c = controller {
-            c.screenDidChange(to: target)
-            c.show()
-        } else {
-            let c = OverlayWindowController(screen: target)
-            c.show()
-            controller = c
-        }
+        let controller = OverlayWindowController(screen: screens[index])
+        overlays[id] = controller
+        controller.show()
+        return controller
     }
 
-    /// Built-in MacBook display first; fall back to the menu-bar screen
-    /// (clamshell mode, Mac mini, etc.).
-    private static func targetScreen() -> NSScreen? {
-        for screen in NSScreen.screens {
-            if let id = screen.displayID, CGDisplayIsBuiltin(id) != 0 {
-                return screen
-            }
+    /// AppKit screen frames and mouseLocation share global bottom-left
+    /// coordinates, including negative origins for displays left of or below
+    /// the primary display. Fall back to the primary display during transitions.
+    static func screenIndex(containing cursor: CGPoint, frames: [CGRect]) -> Int? {
+        frames.firstIndex { $0.contains(cursor) } ?? (frames.isEmpty ? nil : 0)
+    }
+
+    private func reconcileDisplays() {
+        let screens = NSScreen.screens
+        let connected = Set(screens.compactMap(\.displayID))
+        for id in Array(overlays.keys) where !connected.contains(id) {
+            overlays.removeValue(forKey: id)?.close()
         }
-        return NSScreen.screens.first
+        for screen in screens {
+            guard let id = screen.displayID, let controller = overlays[id] else { continue }
+            if controller.overlayWindow.frame != screen.frame {
+                controller.screenDidChange(to: screen)
+            }
+            controller.show()
+        }
     }
 }
 
 private extension NSScreen {
     var displayID: CGDirectDisplayID? {
-        guard let n = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+        guard let number = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
             return nil
         }
-        return CGDirectDisplayID(n.uint32Value)
+        return CGDirectDisplayID(number.uint32Value)
     }
 }

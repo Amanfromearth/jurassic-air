@@ -1,703 +1,312 @@
 import SwiftUI
 import AVFoundation
 
-/// Settings panel modelled on macOS System Settings: a translucent source-list
-/// sidebar on the left, a content pane on the right with a large page title,
-/// optional subtitle, and stacked rounded "cards" containing form rows.
+/// Let macOS own navigation, window chrome, form spacing, and control styling.
 struct SettingsPanelView: View {
-    @EnvironmentObject var settings: AppSettings
-    @State private var section: Section = .general
+    @State private var selection: Page? = .general
 
-    enum Section: String, CaseIterable, Identifiable, Hashable {
-        case general, appearance, calendar, reminders, advanced
+    enum Page: String, CaseIterable, Identifiable {
+        case general = "General", appearance = "Appearance", sound = "Sound"
+        case reminders = "Reminders", calendar = "Calendar", advanced = "Advanced"
         var id: String { rawValue }
-
-        var label: String {
-            switch self {
-            case .general:    return "General"
-            case .appearance: return "Appearance"
-            case .calendar:   return "Calendar"
-            case .reminders:  return "Reminders"
-            case .advanced:   return "Advanced"
-            }
-        }
-
         var symbol: String {
             switch self {
-            case .general:    return "gearshape.fill"
-            case .appearance: return "paintpalette.fill"
-            case .calendar:   return "calendar"
-            case .reminders:  return "bell.fill"
-            case .advanced:   return "slider.horizontal.3"
-            }
-        }
-
-        var tint: Color {
-            switch self {
-            case .general:    return .gray
-            case .appearance: return .pink
-            case .calendar:   return .red
-            case .reminders:  return .orange
-            case .advanced:   return .blue
-            }
-        }
-
-        var pageTitle: String { label }
-
-        var pageSubtitle: String {
-            switch self {
-            case .general:    return "Tune flight speed, sizing, audio, and startup."
-            case .appearance: return "Pick your flier, plane colour, banner theme, and typography."
-            case .calendar:   return "Get a flyover before each meeting on the calendars you choose."
-            case .reminders:  return "Schedule custom reminders to fire on your terms."
-            case .advanced:   return "Debug tools and global resets."
+            case .general: return "gearshape"
+            case .appearance: return "paintbrush"
+            case .sound: return "speaker.wave.2"
+            case .reminders: return "bell"
+            case .calendar: return "calendar"
+            case .advanced: return "slider.horizontal.3"
             }
         }
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            sidebar
-                .frame(width: 210)
-                .background(VisualEffectBackground(material: .sidebar))
-            Divider()
-            content
-                .background(VisualEffectBackground(material: .windowBackground))
-        }
-        .frame(minWidth: 820, minHeight: 580)
-    }
-
-    // MARK: - Sidebar
-
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 8) {
-                Image(systemName: "airplane")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.tint)
-                Text("Jurassic Air")
-                    .font(.system(size: 13, weight: .semibold))
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 18)
-            .padding(.bottom, 10)
-
-            ForEach(Section.allCases) { s in
-                SidebarRow(section: s, isSelected: section == s) {
-                    section = s
-                }
-            }
-            Spacer()
-        }
-        .frame(maxHeight: .infinity, alignment: .top)
-    }
-
-    // MARK: - Content pane
-
-    private var content: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            VStack(alignment: .leading, spacing: 24) {
-                SettingsPageHeader(
-                    title: section.pageTitle,
-                    subtitle: section.pageSubtitle
-                )
-
-                Group {
-                    switch section {
-                    case .general:    GeneralSection()
-                    case .appearance: AppearanceSection()
-                    case .calendar:   CalendarSettingsView()
-                    case .reminders:  CustomRemindersListView()
-                    case .advanced:   AdvancedSection()
+        NavigationSplitView {
+            List(selection: $selection) {
+                SwiftUI.Section("Settings") {
+                    ForEach([Page.general, .appearance, .sound]) { page in
+                        Label(page.rawValue, systemImage: page.symbol).tag(page)
                     }
                 }
+                SwiftUI.Section("Reminders") {
+                    ForEach([Page.reminders, .calendar]) { page in
+                        Label(page.rawValue, systemImage: page.symbol).tag(page)
+                    }
+                }
+                SwiftUI.Section {
+                    Label(Page.advanced.rawValue, systemImage: Page.advanced.symbol)
+                        .tag(Page.advanced)
+                }
             }
-            .frame(maxWidth: 720, alignment: .topLeading)
-            .padding(.horizontal, 32)
-            .padding(.top, 28)
-            .padding(.bottom, 36)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .listStyle(.sidebar)
+            .navigationTitle("Jurassic Air")
+            .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 250)
+        } detail: {
+            detail
+                .navigationTitle((selection ?? .general).rawValue)
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            AppDelegate.shared?.spawnPlaceholderPlane()
+                        } label: {
+                            Label("Preview Flight", systemImage: "paperplane")
+                        }
+                        .help("Send a preview flight across your screen")
+                    }
+                }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationSplitViewStyle(.balanced)
+        .frame(minWidth: 760, minHeight: 560)
+    }
+
+    @ViewBuilder private var detail: some View {
+        switch selection ?? .general {
+        case .general: GeneralSettingsPane()
+        case .appearance: AppearanceSettingsPane()
+        case .sound: SoundSettingsPane()
+        case .reminders: CustomRemindersListView()
+        case .calendar: CalendarSettingsView()
+        case .advanced: AdvancedSettingsPane()
+        }
     }
 }
 
-// MARK: - Sidebar row
-
-private struct SidebarRow: View {
-    let section: SettingsPanelView.Section
-    let isSelected: Bool
-    let onPick: () -> Void
-
-    @State private var hovering = false
+private struct GeneralSettingsPane: View {
+    @EnvironmentObject var settings: AppSettings
+    @State private var launchAtLogin = LaunchAtLogin.isEnabled
 
     var body: some View {
-        Button(action: onPick) {
-            HStack(spacing: 9) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(section.tint.gradient)
-                        .frame(width: 19, height: 19)
-                    Image(systemName: section.symbol)
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-                Text(section.label)
-                    .font(.system(size: 13))
-                    .foregroundStyle(isSelected ? Color.primary : Color.primary.opacity(0.9))
-                Spacer()
+        Form {
+            SwiftUI.Section {
+                Toggle("Open at login", isOn: $launchAtLogin)
+                    .disabled(!LaunchAtLogin.isAvailable)
+                    .onChange(of: launchAtLogin) { value in
+                        if !LaunchAtLogin.setEnabled(value) {
+                            launchAtLogin = LaunchAtLogin.isEnabled
+                        }
+                    }
+            } header: { Text("Startup") } footer: {
+                Text("Keep Jurassic Air in the menu bar, ready for your next reminder.")
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(rowBackground)
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            SwiftUI.Section("Flight") {
+                Picker("Speed", selection: $settings.speedPreset) {
+                    ForEach(SpeedCatalog.presets) { Text($0.name).tag($0.id) }
+                }
+                SettingsSlider("Flight speed", value: $settings.flightSpeed,
+                               range: 30...400, format: "%.0f pt/s")
+                SettingsSlider("Size", value: $settings.displayScale,
+                               range: 0.2...1.5, format: "%.2f×")
+            }
+            SwiftUI.Section {
+                LabeledContent("Try a reminder") {
+                    Button("Send Reminder") { AppDelegate.shared?.triggerRandomReminder() }
+                }
+                LabeledContent("Try a meeting alert") {
+                    Button("Send Meeting Alert") {
+                        AppDelegate.shared?.dispatcher.fire(MockReminderCatalog.randomMeeting())
+                    }
+                }
+            } header: { Text("Preview") } footer: {
+                Text("Changes are saved automatically and apply to your next flight.")
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct SoundSettingsPane: View {
+    @EnvironmentObject var settings: AppSettings
+    var body: some View {
+        Form {
+            SwiftUI.Section {
+                Toggle("Play flight sounds", isOn: $settings.audioEnabled)
+                Toggle("Play character sounds", isOn: $settings.characterSoundEnabled)
+                    .disabled(!settings.audioEnabled)
+            } header: { Text("Audio") } footer: {
+                Text("The engine plays during a flight. Character sounds play halfway through.")
+            }
+            SwiftUI.Section("Character sound") {
+                Picker("Sound", selection: $settings.soundPack) {
+                    ForEach(SoundCatalog.packs) { Text($0.name).tag($0.id) }
+                }
+                Button("Play Sample") { SoundPreview.play(id: settings.soundPack) }
+            }
+            .disabled(!settings.audioEnabled || !settings.characterSoundEnabled)
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct AppearanceSettingsPane: View {
+    @EnvironmentObject var settings: AppSettings
+    @State private var category: Category = .pilot
+    enum Category: String, CaseIterable {
+        case pilot = "Pilot", aircraft = "Aircraft", banner = "Banner"
+    }
+
+    var body: some View {
+        Form {
+            SwiftUI.Section {
+                FlierPreview(headId: settings.flierHead, colorId: settings.flierColor,
+                             themeId: settings.bannerTheme, fontId: settings.bannerFont)
+                    .equatable()
+                    .frame(height: 130)
+            }
+            SwiftUI.Section {
+                Picker("Customize", selection: $category) {
+                    ForEach(Category.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel("Customize appearance")
+            }
+            switch category {
+            case .pilot:
+                SwiftUI.Section("Pilot") {
+                    artworkGrid {
+                        ForEach(FlierCatalog.heads) { head in
+                            ArtworkChoice(title: head.name, image: "thumb-head-\(head.id)",
+                                          selected: settings.flierHead == head.id) {
+                                settings.flierHead = head.id
+                                if let sound = head.sound { settings.soundPack = sound }
+                            }
+                        }
+                    }
+                }
+            case .aircraft:
+                SwiftUI.Section("Aircraft") {
+                    artworkGrid {
+                        ForEach(FlierCatalog.colors) { plane in
+                            ArtworkChoice(title: plane.name, image: "thumb-plane-\(plane.id)",
+                                          selected: settings.flierColor == plane.id) {
+                                settings.flierColor = plane.id
+                            }
+                        }
+                    }
+                }
+            case .banner:
+                SwiftUI.Section("Style") {
+                    Picker("Theme", selection: $settings.bannerTheme) {
+                        ForEach(ThemeCatalog.themes) { Text($0.name).tag($0.id) }
+                    }
+                    Picker("Font", selection: $settings.bannerFont) {
+                        ForEach(FontCatalog.fonts) { Text($0.name).tag($0.id) }
+                    }
+                }
+                SwiftUI.Section("Movement") {
+                    SettingsSlider("Wave height", value: $settings.bannerAmplitude, range: 0...4, format: "%.1f")
+                    SettingsSlider("Wave frequency", value: $settings.bannerFrequency, range: 0.5...10, format: "%.1f")
+                    SettingsSlider("Wave spacing", value: $settings.bannerPhaseStep, range: 0...0.6, format: "%.2f")
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func artworkGrid<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), spacing: 10)], spacing: 12) {
+            content()
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+private struct ArtworkChoice: View {
+    let title: String
+    let image: String
+    let selected: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                ResourceImage(name: image)
+                    .frame(width: 64, height: 44)
+                    .frame(maxWidth: .infinity)
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .frame(height: 28, alignment: .top)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity)
+            .background(selected ? Color.accentColor.opacity(0.08) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.12),
+                                  lineWidth: selected ? 2 : 0.5)
+            }
+            .overlay(alignment: .topTrailing) {
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .background(.background, in: Circle())
+                        .padding(5)
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 8)
-        .onHover { hovering = $0 }
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    @ViewBuilder
-    private var rowBackground: some View {
-        if isSelected {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.accentColor.opacity(0.22))
-        } else if hovering {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.primary.opacity(0.06))
-        } else {
-            Color.clear
-        }
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
-// MARK: - Page header & cards
-
-struct SettingsPageHeader: View {
-    let title: String
-    let subtitle: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 26, weight: .semibold))
-            if let subtitle = subtitle {
-                Text(subtitle)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-}
-
-struct SettingsCard<Content: View>: View {
-    let title: String?
-    let footer: String?
-    @ViewBuilder var content: () -> Content
-
-    init(_ title: String? = nil, footer: String? = nil, @ViewBuilder content: @escaping () -> Content) {
-        self.title = title
-        self.footer = footer
-        self.content = content
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let title = title {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
-                    .padding(.leading, 4)
-            }
-            VStack(spacing: 0) {
-                content()
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color(NSColor.controlBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.5)
-            )
-            if let footer = footer {
-                Text(footer)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 4)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-}
-
-/// Single inset row with a leading label and a trailing control. Auto-adds a
-/// hairline divider above unless `isFirst`.
-struct FormRow<Trailing: View>: View {
-    let title: String
-    let subtitle: String?
-    let isFirst: Bool
-    @ViewBuilder var trailing: () -> Trailing
-
-    init(
-        _ title: String,
-        subtitle: String? = nil,
-        isFirst: Bool = false,
-        @ViewBuilder trailing: @escaping () -> Trailing
-    ) {
-        self.title = title
-        self.subtitle = subtitle
-        self.isFirst = isFirst
-        self.trailing = trailing
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if !isFirst {
-                Divider().padding(.leading, 14)
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 14) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.system(size: 13))
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let subtitle = subtitle {
-                        Text(subtitle)
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                Spacer(minLength: 12)
-                trailing()
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-        }
-    }
-}
-
-/// Full-width row containing arbitrary content (used for sliders, custom tile
-/// grids, lists). Hairline divider above unless `isFirst`.
-struct FormRowFullWidth<Content: View>: View {
-    let isFirst: Bool
-    @ViewBuilder var content: () -> Content
-
-    init(isFirst: Bool = false, @ViewBuilder content: @escaping () -> Content) {
-        self.isFirst = isFirst
-        self.content = content
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if !isFirst {
-                Divider().padding(.leading, 14)
-            }
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-        }
-    }
-}
-
-struct SliderRow: View {
+private struct SettingsSlider: View {
     let title: String
     @Binding var value: Double
     let range: ClosedRange<Double>
     let format: String
-    var isFirst: Bool = false
-
+    init(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, format: String) {
+        self.title = title; self._value = value; self.range = range; self.format = format
+    }
     var body: some View {
-        FormRowFullWidth(isFirst: isFirst) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(title)
-                        .font(.system(size: 13))
-                    Spacer()
-                    Text(String(format: format, value))
-                        .font(.system(size: 12))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
+        HStack(spacing: 16) {
+            Text(title)
+            Spacer(minLength: 8)
+            HStack(spacing: 10) {
                 Slider(value: $value, in: range)
-            }
-        }
-    }
-}
-
-/// Vibrancy background like System Settings (`.sidebar` for the source list,
-/// `.windowBackground` for the content pane).
-private struct VisualEffectBackground: NSViewRepresentable {
-    let material: NSVisualEffectView.Material
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let v = NSVisualEffectView()
-        v.material = material
-        v.blendingMode = .behindWindow
-        v.state = .followsWindowActiveState
-        return v
-    }
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = material
-    }
-}
-
-// MARK: - General
-
-private struct GeneralSection: View {
-    @EnvironmentObject var settings: AppSettings
-    @State private var launchAtLogin: Bool = LaunchAtLogin.isEnabled
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsCard("Flight") {
-                FormRow("Speed preset", isFirst: true) {
-                    Picker("", selection: $settings.speedPreset) {
-                        ForEach(SpeedCatalog.presets) { preset in
-                            Text("\(preset.name) · \(String(format: "%.1f×", preset.multiplier))")
-                                .tag(preset.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 180)
-                }
-                SliderRow(
-                    title: "Base speed",
-                    value: $settings.flightSpeed,
-                    range: 30...400,
-                    format: "%.0f px/s"
-                )
-                SliderRow(
-                    title: "Plane + banner size",
-                    value: $settings.displayScale,
-                    range: 0.2...1.5,
-                    format: "%.2f×"
-                )
-            }
-
-            SettingsCard("Audio") {
-                FormRow(
-                    "Engine sound + voice",
-                    subtitle: "Master switch for all flight audio.",
-                    isFirst: true
-                ) {
-                    Toggle("", isOn: $settings.audioEnabled).labelsHidden()
-                }
-                FormRow(
-                    "Character voice",
-                    subtitle: "Mid-flight one-shot for the selected character."
-                ) {
-                    Toggle("", isOn: $settings.characterSoundEnabled)
-                        .labelsHidden()
-                        .disabled(!settings.audioEnabled)
-                }
-            }
-
-            SettingsCard(
-                "Startup",
-                footer: LaunchAtLogin.isAvailable
-                    ? nil
-                    : "Run from JurassicAir.app (via ./build.sh) to enable launch at login."
-            ) {
-                FormRow("Launch at login", isFirst: true) {
-                    Toggle("", isOn: $launchAtLogin)
-                        .labelsHidden()
-                        .disabled(!LaunchAtLogin.isAvailable)
-                        .onChange(of: launchAtLogin) { newValue in
-                            if !LaunchAtLogin.setEnabled(newValue) {
-                                launchAtLogin = LaunchAtLogin.isEnabled
-                            }
-                        }
-                }
-            }
-
-            SettingsCard("Quick actions", footer: "Send a plane now to check your size, speed, and audio settings.") {
-                FormRowFullWidth(isFirst: true) {
-                    HStack(spacing: 8) {
-                        Button {
-                            AppDelegate.shared?.triggerRandomReminder()
-                        } label: {
-                            Label("Test Reminder", systemImage: "paperplane")
-                        }
-                        Button {
-                            AppDelegate.shared?.dispatcher.fire(MockReminderCatalog.randomMeeting())
-                        } label: {
-                            Label("Test Meeting", systemImage: "calendar")
-                        }
-                        Button {
-                            AppDelegate.shared?.spawnPlaceholderPlane()
-                        } label: {
-                            Label("Placeholder", systemImage: "airplane")
-                        }
-                        Spacer(minLength: 0)
-                        Button {
-                            AppDelegate.shared?.reloadAssets()
-                        } label: {
-                            Label("Reload Assets", systemImage: "arrow.clockwise")
-                        }
-                        .help("Reload sprite and font assets from disk")
-                    }
-                    .controlSize(.regular)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Appearance
-
-private struct AppearanceSection: View {
-    @EnvironmentObject var settings: AppSettings
-    @State private var sub: SubTab = .flier
-
-    enum SubTab: String, CaseIterable, Identifiable {
-        case flier, banner, typo
-        var id: String { rawValue }
-        var label: String {
-            switch self {
-            case .flier:  return "Flier"
-            case .banner: return "Banner"
-            case .typo:   return "Typography"
-            }
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            // Live composite preview card.
-            SettingsCard {
-                FormRowFullWidth(isFirst: true) {
-                    FlierPreview(
-                        headId: settings.flierHead,
-                        colorId: settings.flierColor,
-                        themeId: settings.bannerTheme,
-                        fontId: settings.bannerFont
-                    )
-                    .equatable()
-                    .frame(height: 160)
-                    .frame(maxWidth: .infinity)
-                }
-            }
-
-            Picker("", selection: $sub) {
-                ForEach(SubTab.allCases) { t in Text(t.label).tag(t) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-
-            switch sub {
-            case .flier:  flierSub
-            case .banner: bannerSub
-            case .typo:   typoSub
-            }
-        }
-    }
-
-    private var flierSub: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsCard("Character") {
-                FormRowFullWidth(isFirst: true) {
-                    TileGrid(items: FlierCatalog.heads) { head in
-                        TileButton(
-                            selected: settings.flierHead == head.id,
-                            title: head.name,
-                            content: {
-                                ResourceImage(name: "thumb-head-\(head.id)")
-                                    .frame(width: 56, height: 56)
-                            },
-                            onPick: {
-                                settings.flierHead = head.id
-                                settings.soundPack = head.sound
-                                SoundPreview.play(id: head.sound)
-                            }
-                        )
-                    }
-                }
-            }
-            SettingsCard("Plane colour") {
-                FormRowFullWidth(isFirst: true) {
-                    TileGrid(items: FlierCatalog.colors) { color in
-                        TileButton(
-                            selected: settings.flierColor == color.id,
-                            title: color.name,
-                            content: {
-                                ResourceImage(name: "thumb-plane-\(color.id)")
-                                    .frame(width: 56, height: 56)
-                            },
-                            onPick: { settings.flierColor = color.id }
-                        )
-                    }
-                }
-            }
-            SettingsCard("Sound pack") {
-                FormRowFullWidth(isFirst: true) {
-                    TileGrid(items: SoundCatalog.packs) { pack in
-                        TileButton(
-                            selected: settings.soundPack == pack.id,
-                            title: pack.name,
-                            content: {
-                                Image(systemName: "speaker.wave.2.fill")
-                                    .font(.system(size: 22))
-                                    .frame(width: 56, height: 56)
-                                    .foregroundStyle(.secondary)
-                            },
-                            onPick: {
-                                settings.soundPack = pack.id
-                                SoundPreview.play(id: pack.id)
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    private var bannerSub: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsCard("Theme") {
-                FormRowFullWidth(isFirst: true) {
-                    TileGrid(items: ThemeCatalog.themes) { theme in
-                        TileButton(
-                            selected: settings.bannerTheme == theme.id,
-                            title: theme.name,
-                            content: { ThemeSwatch(theme: theme).frame(width: 88, height: 36) },
-                            onPick: { settings.bannerTheme = theme.id }
-                        )
-                    }
-                }
-            }
-            SettingsCard("Banner wave") {
-                SliderRow(title: "Amplitude",  value: $settings.bannerAmplitude,  range: 0...4,     format: "%.2f", isFirst: true)
-                SliderRow(title: "Frequency",  value: $settings.bannerFrequency,  range: 0.5...10,  format: "%.2f")
-                SliderRow(title: "Phase step", value: $settings.bannerPhaseStep,  range: 0...0.6,   format: "%.2f")
-            }
-        }
-    }
-
-    private var typoSub: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsCard("Font") {
-                FormRowFullWidth(isFirst: true) {
-                    TileGrid(items: FontCatalog.fonts) { font in
-                        TileButton(
-                            selected: settings.bannerFont == font.id,
-                            title: font.name,
-                            content: {
-                                Text("Hello")
-                                    .font(swiftUIFont(for: font, size: 16))
-                                    .frame(width: 88, height: 36)
-                            },
-                            onPick: { settings.bannerFont = font.id }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    /// Best-effort SwiftUI font for the live preview tile — falls back to
-    /// system if the bundled pixel font hasn't been registered yet.
-    private func swiftUIFont(for font: BannerFont, size: CGFloat) -> Font {
-        if font.isPixel {
-            SpriteAssets.registerPixelFont()
-            return .custom(SpriteAssets.pixelFontName, size: size - 4)
-        }
-        let ns = font.resolve(size)
-        return .custom(ns.fontName, size: size)
-    }
-}
-
-// MARK: - Advanced
-
-private struct AdvancedSection: View {
-    @EnvironmentObject var settings: AppSettings
-    @State private var showingResetConfirm = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsCard("Debug") {
-                FormRow(
-                    "Show render stats",
-                    subtitle: "Overlay FPS, node count, and draw count on the flight scene.",
-                    isFirst: true
-                ) {
-                    Toggle("", isOn: $settings.showRenderStats).labelsHidden()
-                }
-            }
-
-            SettingsCard(
-                "Reset",
-                footer: "Custom reminders, calendar selections, and launch-at-login are not affected."
-            ) {
-                FormRow(
-                    "Restore default settings",
-                    subtitle: "Reverts appearance, audio, flight speed, and debug flags.",
-                    isFirst: true
-                ) {
-                    Button("Reset…", role: .destructive) { showingResetConfirm = true }
-                }
-            }
-        }
-        .confirmationDialog(
-            "Reset all settings to defaults?",
-            isPresented: $showingResetConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("Reset", role: .destructive) { settings.resetToDefaults() }
-            Button("Cancel", role: .cancel) {}
-        }
-    }
-}
-
-// MARK: - Shared widgets
-
-private struct TileGrid<Item: Identifiable, Content: View>: View {
-    let items: [Item]
-    @ViewBuilder var content: (Item) -> Content
-    private let columns = [GridItem(.adaptive(minimum: 96), spacing: 10)]
-    var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-            ForEach(items) { content($0) }
-        }
-    }
-}
-
-private struct TileButton<Content: View>: View {
-    let selected: Bool
-    let title: String
-    @ViewBuilder let content: () -> Content
-    let onPick: () -> Void
-    var body: some View {
-        Button(action: onPick) {
-            VStack(spacing: 8) {
-                content()
-                Text(title)
-                    .font(.system(size: 11.5))
+                    .frame(minWidth: 100, idealWidth: 160, maxWidth: 200)
+                    .accessibilityLabel(title)
+                Text(String(format: format, value))
+                    .monospacedDigit()
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .frame(width: 70, alignment: .trailing)
             }
-            .padding(10)
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(selected ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.04))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.08),
-                                  lineWidth: selected ? 1.5 : 0.5)
-            )
         }
-        .buttonStyle(.plain)
     }
 }
 
+private struct AdvancedSettingsPane: View {
+    @EnvironmentObject var settings: AppSettings
+    @State private var confirmReset = false
+    var body: some View {
+        Form {
+            SwiftUI.Section("Diagnostics") {
+                Toggle("Show rendering statistics", isOn: $settings.showRenderStats)
+                LabeledContent("Sprite and font resources") {
+                    Button("Reload") { AppDelegate.shared?.reloadAssets() }
+                }
+            }
+            SwiftUI.Section {
+                LabeledContent("Restore default settings") {
+                    Button("Reset…") { confirmReset = true }
+                }
+            } header: { Text("Reset") } footer: {
+                Text("Your reminders, calendar selections, and login preference are kept.")
+            }
+        }
+        .formStyle(.grouped)
+        .confirmationDialog("Restore default settings?", isPresented: $confirmReset) {
+            Button("Restore Defaults", role: .destructive) { settings.resetToDefaults() }
+            Button("Cancel", role: .cancel) { }
+        }
+    }
+}
 private struct ResourceImage: View {
     let name: String
     var body: some View {
@@ -771,29 +380,24 @@ private struct FlierPreview: View, Equatable {
     let fontId: String
 
     /// Upscale factor for the banner bitmap. Integer keeps pixels square.
-    private let bannerScale: CGFloat = 3
+    private let bannerScale: CGFloat = 2
     private let planeSize: CGFloat = 120
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(LinearGradient(
-                    colors: [Color.accentColor.opacity(0.14), Color.accentColor.opacity(0.03)],
-                    startPoint: .top, endPoint: .bottom
-                ))
-
+        GeometryReader { geometry in
             HStack(spacing: 0) {
                 banner
                 Rectangle()
                     .fill(Color(SpriteAssets.ropeColor))
-                    .frame(width: 44, height: 2)
+                    .frame(width: 32, height: 2)
                     .offset(y: planeSize * (0.5 - 0.438))
-                plane
-                    // The rope tucks into the fuselage at 12.3% of the plane width.
-                    .padding(.leading, -planeSize * 0.123)
+                plane.padding(.leading, -planeSize * 0.123)
             }
-            .padding(.horizontal, 16)
+            .frame(width: 440, height: 130)
+            .scaleEffect(min(1, geometry.size.width / 440))
+            .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
         }
+        .clipped()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Preview of the plane and banner")
     }
@@ -817,6 +421,10 @@ private struct FlierPreview: View, Equatable {
             ResourceImage(name: "plane-\(colorId)-base")
             ResourceImage(name: "head-\(headId)")
             ResourceImage(name: "blade")
+                .offset(
+                    x: FlierCatalog.color(id: colorId).propellerOffset.x / 1088 * planeSize,
+                    y: -FlierCatalog.color(id: colorId).propellerOffset.y / 1088 * planeSize
+                )
         }
         .frame(width: planeSize, height: planeSize)
     }

@@ -11,10 +11,10 @@ final class CatalogTests: XCTestCase {
 
     // MARK: - FlierCatalog (heads + plane colours)
 
-    func testHeadCatalogHasFiveEntries() {
-        XCTAssertEqual(FlierCatalog.heads.count, 5)
+    func testHeadCatalogIncludesAviators() {
+        XCTAssertEqual(FlierCatalog.heads.count, 7)
         XCTAssertEqual(FlierCatalog.heads.map(\.id),
-                       ["dino", "duck", "corgi", "pigeon", "capybara"])
+                       ["dino", "duck", "corgi", "pigeon", "capybara", "porco", "aviator"])
     }
 
     func testHeadIdsAreUnique() {
@@ -36,9 +36,10 @@ final class CatalogTests: XCTestCase {
 
     func testEveryHeadResolvesToARealSoundPack() {
         for head in FlierCatalog.heads {
-            let pack = SoundCatalog.pack(id: head.sound)
-            XCTAssertEqual(pack.id, head.sound,
-                           "head '\(head.id)' references sound '\(head.sound)' which doesn't exist")
+            guard let sound = head.sound else { continue }
+            let pack = SoundCatalog.pack(id: sound)
+            XCTAssertEqual(pack.id, sound,
+                           "head '\(head.id)' references sound '\(sound)' which doesn't exist")
         }
     }
 
@@ -56,10 +57,10 @@ final class CatalogTests: XCTestCase {
         }
     }
 
-    func testPlaneColorCatalogHasFiveEntries() {
-        XCTAssertEqual(FlierCatalog.colors.count, 5)
+    func testPlaneColorCatalogIncludesMilitaryVariants() {
+        XCTAssertEqual(FlierCatalog.colors.count, 9)
         XCTAssertEqual(FlierCatalog.colors.map(\.id),
-                       ["red", "blue", "green", "pink", "black"])
+                       ["red", "blue", "green", "pink", "black", "military", "shark", "navy", "navy-shark"])
     }
 
     func testPlaneColorLookupFallsBackOnUnknownId() {

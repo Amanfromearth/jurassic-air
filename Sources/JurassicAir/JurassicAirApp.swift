@@ -7,5 +7,11 @@ struct JurassicAirApp: App {
 
     var body: some Scene {
         Settings { EmptyView() }
+            .commands {
+                CommandGroup(replacing: .appSettings) {
+                    Button("Settings…") { AppDelegate.shared?.toggleSettingsPanel() }
+                        .keyboardShortcut(",", modifiers: .command)
+                }
+            }
     }
 }
