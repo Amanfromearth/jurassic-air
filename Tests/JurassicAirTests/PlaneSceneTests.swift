@@ -97,6 +97,33 @@ final class PlaneSceneTests: XCTestCase {
         XCTAssertTrue(scene.hasActiveFlight)
     }
 
+    func testHoverPauseResumesWithoutMouseMovedEvents() {
+        let scene = makeScene()
+        scene.spawn(event: sampleEvent())
+        let plane = scene.children.first { $0 is PlaneNode }!
+        scene.update(1)
+        let start = plane.position.x
+        scene.setHoverPaused(true)
+        scene.update(1.02)
+        XCTAssertEqual(plane.position.x, start)
+        scene.setHoverPaused(false)
+        scene.update(1.04)
+        XCTAssertGreaterThan(plane.position.x, start)
+    }
+
+    func testFlightCompletionNotifiesOverlayToReleaseRenderingResources() {
+        let scene = PlaneScene(size: CGSize(width: 10, height: 360))
+        var activity: [Bool] = []
+        scene.onFlightActivityChange = { activity.append($0) }
+        scene.spawn(event: sampleEvent())
+        for frame in 0..<1000 where scene.hasActiveFlight {
+            scene.update(Double(frame) / 60 + 1)
+        }
+        XCTAssertFalse(scene.hasActiveFlight)
+        XCTAssertEqual(activity, [true, false])
+        XCTAssertTrue(scene.children.isEmpty)
+    }
+
     // MARK: - reloadAssets
 
     func testReloadAssetsClearsCachesAndDoesNotCrashWithoutFlight() {

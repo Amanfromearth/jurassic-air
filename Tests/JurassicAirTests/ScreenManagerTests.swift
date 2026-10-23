@@ -5,6 +5,22 @@ import AppKit
 final class ScreenManagerTests: XCTestCase {
     private let primary = CGRect(x: 0, y: 0, width: 1440, height: 900)
 
+    func testFlightViewportFitsDisplaysWithAnyOrigin() {
+        for frame in [primary, CGRect(x: -1920, y: -1080, width: 1920, height: 1080),
+                      CGRect(x: 0, y: 900, width: 2560, height: 1440),
+                      CGRect(x: 10, y: 10, width: 640, height: 300)] {
+            let viewport = OverlayWindow.viewportFrame(for: frame)
+            XCTAssertTrue(frame.contains(viewport))
+            XCTAssertEqual(viewport.width, frame.width)
+            XCTAssertLessThanOrEqual(viewport.height, 360)
+        }
+    }
+
+    func testViewportGrowsForTallBannersButNeverExceedsTheDisplay() {
+        XCTAssertEqual(OverlayWindow.viewportFrame(for: primary, contentHeight: 700).height, 700)
+        XCTAssertEqual(OverlayWindow.viewportFrame(for: primary, contentHeight: 2000).height, primary.height)
+    }
+
     func testCursorSelectsExternalDisplayInsteadOfPrimary() {
         let external = CGRect(x: 1440, y: 0, width: 2560, height: 1440)
         XCTAssertEqual(ScreenManager.screenIndex(containing: CGPoint(x: 1800, y: 500),
@@ -35,13 +51,13 @@ final class ScreenManagerTests: XCTestCase {
         XCTAssertNil(ScreenManager.screenIndex(containing: .zero, frames: []))
     }
 
-    func testStartCreatesOnlyTheCursorDisplaysOverlay() {
+    func testStartDoesNotAllocateAnIdleRenderingSurface() {
         let manager = ScreenManager()
         manager.start()
         defer { manager.controllers.forEach { $0.close() } }
-        XCTAssertEqual(manager.controllers.count, NSScreen.screens.isEmpty ? 0 : 1)
+        XCTAssertTrue(manager.controllers.isEmpty)
         manager.start()
-        XCTAssertEqual(manager.controllers.count, NSScreen.screens.isEmpty ? 0 : 1)
+        XCTAssertTrue(manager.controllers.isEmpty)
     }
 
     func testRepeatedFlightsReuseTheSameDisplayController() throws {
@@ -70,12 +86,12 @@ final class ScreenManagerTests: XCTestCase {
         let second = try XCTUnwrap(manager.controllerForCursorScreen(
             at: CGPoint(x: secondFrame.midX, y: secondFrame.midY)))
         XCTAssertFalse(first === second)
-        XCTAssertEqual(first.overlayWindow.frame, firstFrame)
-        XCTAssertEqual(second.overlayWindow.frame, secondFrame)
+        XCTAssertEqual(first.overlayWindow.frame, OverlayWindow.viewportFrame(for: firstFrame))
+        XCTAssertEqual(second.overlayWindow.frame, OverlayWindow.viewportFrame(for: secondFrame))
         XCTAssertGreaterThanOrEqual(manager.controllers.count, 2)
         NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
-        XCTAssertEqual(first.overlayWindow.frame, firstFrame)
-        XCTAssertEqual(second.overlayWindow.frame, secondFrame)
+        XCTAssertEqual(first.overlayWindow.frame, OverlayWindow.viewportFrame(for: firstFrame))
+        XCTAssertEqual(second.overlayWindow.frame, OverlayWindow.viewportFrame(for: secondFrame))
         XCTAssertIdentical(first, manager.controllerForCursorScreen(
             at: CGPoint(x: firstFrame.midX, y: firstFrame.midY)))
     }

@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// SwiftUI's @NSApplicationDelegateAdaptor doesn't expose us through
     /// `NSApp.delegate` reliably from view code (same root cause as the
     /// CalendarService bug). Views reach for `AppDelegate.shared` instead.
@@ -13,25 +13,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let scheduler = ReminderScheduler()
     lazy var calendarScheduler = CalendarAlertScheduler(service: Services.calendar)
     var settingsWindow: NSWindow?
-    /// Retained activity token that disables App Nap. Without this, macOS will
-    /// throttle our polling Timer when the app has been idle in the menu bar
-    /// (no windows, no recent user interaction), which made reminders only fire
-    /// when the user happened to click the menu bar icon.
-    private var antiNapActivity: NSObjectProtocol?
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.shared = self
         NSApp.setActivationPolicy(.accessory)
-
-        // Keep the run loop and timers alive in the background. .userInitiated
-        // opts out of App Nap; .latencyCritical disables timer coalescing so the
-        // 15 s tick doesn't get lumped into multi-minute batches by the system.
-        antiNapActivity = ProcessInfo.processInfo.beginActivity(
-            options: [.userInitiated, .latencyCritical],
-            reason: "Jurassic Air fires scheduled reminders on time"
-        )
-
-        SpriteAssets.registerPixelFont()
 
         dispatcher.screenManager = screenManager
         screenManager.start()
@@ -48,6 +32,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onSettings: { [weak self] in self?.toggleSettingsPanel() },
             onQuit: { NSApp.terminate(nil) }
         )
+
+        // Optional one-flight workload for repeatable Instruments/top profiling.
+        if CommandLine.arguments.contains("--preview-flight") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                self?.spawnPlaceholderPlane()
+            }
+        }
     }
 
     func triggerRandomReminder() {
@@ -69,9 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        // Reuse the existing window AND hosting controller across close/reopen
-        // so the selected sidebar tab + appearance sub-tab survive. Only on
-        // first open do we build the SwiftUI view tree.
+        // Reuse a visible window; closing releases its UI resources.
         let win: NSWindow
         if let existing = settingsWindow {
             win = existing
@@ -91,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             win.contentViewController = NSHostingController(rootView: panel)
             win.setContentSize(NSSize(width: 900, height: 680))
             win.isReleasedWhenClosed = false
+            win.delegate = self
             settingsWindow = win
         }
         // Always re-center on the primary display each time the user opens
@@ -98,6 +88,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         centerOnPrimaryScreen(win)
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === settingsWindow else { return }
+        // Preferences and navigation are persisted; the hidden SwiftUI view tree
+        // and its drawing surfaces need not live for the rest of the session.
+        settingsWindow = nil
     }
 
     private func centerOnPrimaryScreen(_ window: NSWindow) {

@@ -48,15 +48,19 @@ final class BannerRibbon: SKSpriteNode {
     /// when these change.
     private var renderedThemeId: String = ""
     private var renderedFontId: String = ""
+    private let createsTexture: Bool
+    private static var previewKey: [String] = []
+    private static var cachedPreview: CGImage?
 
     // MARK: - Init
 
-    init(text: String) {
+    init(text: String, createsTexture: Bool = true) {
+        self.createsTexture = createsTexture
         super.init(texture: nil, color: .clear, size: .zero)
         // Anchor at the RIGHT edge (vertical center): the banner attaches to the rope tip
         // on its right side and trails to the LEFT as the plane flies left-to-right.
         anchorPoint = CGPoint(x: 1.0, y: 0.5)
-        shader = waveShader
+        if createsTexture { shader = waveShader }
         setText(text)
     }
 
@@ -66,7 +70,12 @@ final class BannerRibbon: SKSpriteNode {
     /// font from `AppSettings.shared`. Used by the Settings preview so it
     /// shows exactly what will fly.
     static func previewImage(text: String) -> CGImage? {
-        BannerRibbon(text: text).flatImage
+        let key = [text, AppSettings.shared.bannerTheme, AppSettings.shared.bannerFont]
+        if key == previewKey, let cachedPreview { return cachedPreview }
+        let image = BannerRibbon(text: text, createsTexture: false).flatImage
+        previewKey = key
+        cachedPreview = image
+        return image
     }
 
     func setText(_ newText: String) {
@@ -92,7 +101,7 @@ final class BannerRibbon: SKSpriteNode {
         renderedFontId = s.bannerFont
 
         flatImage = makeImage(fromBottomUp: buffer, width: bitmapWidth, height: bitmapHeight)
-        if let flatImage {
+        if let flatImage, createsTexture {
             let t = SKTexture(cgImage: flatImage)
             t.filteringMode = .nearest
             texture = t
