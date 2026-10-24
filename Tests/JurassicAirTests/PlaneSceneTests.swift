@@ -18,6 +18,15 @@ final class PlaneSceneTests: XCTestCase {
         ReminderEvent(title: title, urlString: "https://example.com")
     }
 
+    func testLongReminderKeepsFullTitleForHover() throws {
+        let scene = makeScene()
+        let title = BannerStressFixtures.worst[0].title
+        scene.spawn(event: sampleEvent(title))
+        let banner = try XCTUnwrap(scene.children.first { $0 is BannerRibbon } as? BannerRibbon)
+        XCTAssertTrue(banner.isTruncated)
+        XCTAssertEqual(scene.reminderTooltip, title)
+    }
+
     // MARK: - spawn
 
     func testSpawnAddsPlaneRopeAndBanner() {

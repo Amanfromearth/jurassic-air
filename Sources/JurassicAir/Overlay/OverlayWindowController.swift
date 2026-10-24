@@ -33,8 +33,12 @@ final class OverlayWindowController: NSWindowController {
             guard let self else { return }
             self.skView.isPaused = !active
             if active {
+                self.skView.toolTip = self.scene.reminderTooltip
+                self.skView.setAccessibilityLabel(self.scene.reminderTooltip)
                 self.show()
             } else {
+                self.skView.toolTip = nil
+                self.skView.setAccessibilityLabel(nil)
                 self.overlayWindow.ignoresMouseEvents = true
                 self.overlayWindow.orderOut(nil)
                 self.onIdle?()

@@ -54,6 +54,28 @@ final class BannerShaderRenderTests: XCTestCase {
         return Double(same) / Double(total)
     }
 
+    func testMaximumWaveKeepsEveryOpaquePixelVisible() throws {
+        let settings = AppSettings.shared
+        settings.bannerAmplitude = 4
+        settings.bannerFrequency = 3
+        settings.bannerPhaseStep = 0.3
+        defer { settings.resetToDefaults() }
+        for title in ["DAILY ALGO\nSTARTS IN 5 MIN", "ĐẶNG THỊ NGỌC HÂN", "王秀英：产品设计评审"] {
+            let banner = BannerRibbon(text: title)
+            let flat = try XCTUnwrap(banner.flatImage)
+            let expected = Self.rgba(of: flat, width: flat.width, height: flat.height)
+            let opaque = stride(from: 3, to: expected.count, by: 4).filter { expected[$0] > 127 }.count
+            banner.tick(currentTime: 10)
+            for time in [10.1, 10.5, 11.0] {
+                banner.tick(currentTime: time)
+                let actual = try render(banner, image: flat)
+                let visible = stride(from: 3, to: actual.count, by: 4).filter { actual[$0] > 127 }.count
+                XCTAssertEqual(visible, opaque, "wave clipped cloth/text for \(title)")
+                banner.removeFromParent()
+            }
+        }
+    }
+
     func testZeroAmplitudeMatchesFlatBanner() throws {
         AppSettings.shared.bannerAmplitude = 0
         let banner = BannerRibbon(text: "HELLO")

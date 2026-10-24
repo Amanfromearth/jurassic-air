@@ -131,8 +131,8 @@ final class CalendarAlertScheduler {
                 let key = "\(event.id):\(offset)"
                 guard firedKeys[key] == nil else { continue }
                 if date >= fireAt && date < fireAt.addingTimeInterval(lateness) {
-                    let title = offset == 0 ? "\(event.title) — NOW"
-                        : "\(event.title) in \(offset) min"
+                    let timing = offset == 0 ? "Starting now" : "Starts in \(offset) min"
+                    let title = "\(event.title)\n\(timing)"
                     dispatcher?.fire(ReminderEvent(title: title, urlString: event.url?.absoluteString ?? ""))
                     firedKeys[key] = date
                     changed = true

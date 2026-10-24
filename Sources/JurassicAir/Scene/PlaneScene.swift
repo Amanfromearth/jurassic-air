@@ -24,6 +24,9 @@ final class PlaneScene: SKScene {
     /// Read by the overlay controller's cursor-passthrough poll so it can skip
     /// the per-tick hit-test math when there's no plane on screen.
     var hasActiveFlight: Bool { activeFlight != nil }
+    /// The rendered banner can shorten very long text; hover exposes it in full.
+    var reminderTooltip: String? { activeFlight?.event.title }
+
 
     private struct ActiveFlight {
         let event: ReminderEvent
