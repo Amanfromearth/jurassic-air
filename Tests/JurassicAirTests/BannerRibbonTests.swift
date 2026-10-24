@@ -33,20 +33,95 @@ final class BannerRibbonTests: XCTestCase {
         super.tearDown()
     }
 
+    /// Inspect actual ink, so missing/overlapping lines and uneven padding
+    /// cannot pass simply because the outer banner has the right dimensions.
+    private func inkBands(in image: CGImage) throws -> [CGRect] {
+        let data = try XCTUnwrap(image.dataProvider?.data)
+        let bytes = try XCTUnwrap(CFDataGetBytePtr(data))
+        let ink = ThemeCatalog.theme(id: "classic").text
+        var bands: [CGRect] = []
+        var current: CGRect?
+        for y in 0..<image.height {
+            let columns = (0..<image.width).filter { x in
+                let i = y * image.bytesPerRow + x * 4
+                return bytes[i] == ink.r && bytes[i + 1] == ink.g && bytes[i + 2] == ink.b
+            }
+            if let left = columns.first, let right = columns.last {
+                let row = CGRect(x: left, y: y, width: right - left + 1, height: 1)
+                current = current.map { $0.union(row) } ?? row
+            } else if let band = current {
+                bands.append(band)
+                current = nil
+            }
+        }
+        if let current { bands.append(current) }
+        return bands
+    }
+
+    func testWrappedLinesStayVisibleAndCentered() throws {
+        let banner = BannerRibbon(text: "Design review with the product team in 5 min", createsTexture: false)
+        let image = try XCTUnwrap(banner.flatImage)
+        let bands = try inkBands(in: image)
+        XCTAssertEqual(bands.count, 3, "every wrapped line must remain visible")
+        for band in bands {
+            XCTAssertEqual(band.midX, CGFloat(image.width) / 2, accuracy: 1)
+        }
+        let top = try XCTUnwrap(bands.first)
+        let bottom = try XCTUnwrap(bands.last)
+        XCTAssertEqual(top.minY, CGFloat(image.height) - bottom.maxY, accuracy: 1)
+        for pair in zip(bands, bands.dropFirst()) {
+            XCTAssertEqual(pair.1.midY - pair.0.midY, 14, accuracy: 1)
+        }
+    }
+
+    func testWrappingAvoidsOrphanedTimingWords() {
+        let banner = BannerRibbon(text: "Design review with the product team in 5 min", createsTexture: false)
+        XCTAssertEqual(banner.lines.count, 3)
+        XCTAssertNotEqual(banner.lines.last, "min")
+        XCTAssertTrue(banner.lines.allSatisfy { $0.contains(" ") })
+        XCTAssertEqual(banner.lines.joined(separator: " "), banner.text)
+    }
+
+    func testCalendarCountdownStaysTogetherOnItsOwnLine() throws {
+        let banner = BannerRibbon(text: "Daily algo\nStarts in 5 min", createsTexture: false)
+        let image = try XCTUnwrap(banner.flatImage)
+        let bands = try inkBands(in: image)
+        XCTAssertEqual(bands.count, 2)
+        let top = try XCTUnwrap(bands.first)
+        let bottom = try XCTUnwrap(bands.last)
+        XCTAssertEqual(top.minY, CGFloat(image.height) - bottom.maxY, accuracy: 1)
+    }
+
+    func testExplicitLinesAndWhitespaceAcrossFonts() throws {
+        defer { AppSettings.shared.bannerFont = "pixel" }
+        for font in FontCatalog.fonts {
+            AppSettings.shared.bannerFont = font.id
+            let banner = BannerRibbon(text: "  Daily   algo  \n\n Drink\twater \n Ship it! ", createsTexture: false)
+            let image = try XCTUnwrap(banner.flatImage)
+            let bands = try inkBands(in: image)
+            XCTAssertEqual(bands.count, 3, "missing lines for \(font.id)")
+            for band in bands {
+                XCTAssertEqual(band.midX, CGFloat(image.width) / 2, accuracy: 1, font.id)
+                XCTAssertGreaterThan(band.minY, 2, font.id)
+                XCTAssertLessThan(band.maxY, CGFloat(image.height - 2), font.id)
+            }
+        }
+    }
+
     // MARK: - Construction
 
     func testShortTextRendersOnOneLine() {
         let banner = BannerRibbon(text: "HI")
-        // height = singleLineHeight (22) × pixelScale (4) = 88pt
-        XCTAssertEqual(banner.size.height, 88, accuracy: 0.5)
+        // height = singleLineHeight (26) × pixelScale (4) = 104pt
+        XCTAssertEqual(banner.size.height, 104, accuracy: 0.5)
     }
 
     func testLongTextWrapsToMultipleLines() {
         let banner = BannerRibbon(text: "THIS IS A VERY LONG REMINDER TITLE THAT MUST WRAP")
-        // height = (singleLineHeight 22 + (lines - 1) × lineStep 14) × pixelScale 4.
-        // Anything taller than one line (88pt) proves the text wrapped.
-        XCTAssertGreaterThan(banner.size.height, 88)
-        let extra = (banner.size.height / 4 - 22) / 14
+        // height = (singleLineHeight 26 + (lines - 1) × lineStep 14) × pixelScale 4.
+        // Anything taller than one line (104pt) proves the text wrapped.
+        XCTAssertGreaterThan(banner.size.height, 104)
+        let extra = (banner.size.height / 4 - 26) / 14
         XCTAssertEqual(extra, extra.rounded(), accuracy: 0.001,
                        "height must be a whole number of extra lines")
     }
@@ -69,10 +144,10 @@ final class BannerRibbonTests: XCTestCase {
         _ = BannerRibbon(text: "   ")
     }
 
-    func testVeryLongWordTruncatesWithEllipsis() {
+    func testVeryLongWordStaysWithinMaximumWidth() {
         let banner = BannerRibbon(text: String(repeating: "X", count: 200))
-        // The width is capped at maxBitmapWidth × pixelScale = 180 × 4 = 720pt.
-        XCTAssertLessThanOrEqual(banner.size.width, 720)
+        // The width is capped at maxBitmapWidth × pixelScale = 200 × 4 = 800pt.
+        XCTAssertLessThanOrEqual(banner.size.width, 800)
     }
 
     func testUnicodeTextDoesNotCrash() {

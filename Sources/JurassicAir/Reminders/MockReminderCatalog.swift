@@ -2,16 +2,16 @@ import Foundation
 
 enum MockReminderCatalog {
     static let general: [ReminderEvent] = [
-        .init(title: "Drink some water", urlString: "https://www.hydrationforhealth.com/"),
-        .init(title: "Stand up & stretch", urlString: "https://www.nhs.uk/live-well/exercise/sitting-exercises/"),
-        .init(title: "Reply to mom", urlString: "imessage://"),
-        .init(title: "Ship it!", urlString: "https://github.com/")
+        .init(title: "Time for water", urlString: "https://www.hydrationforhealth.com/"),
+        .init(title: "Time to stretch", urlString: "https://www.nhs.uk/live-well/exercise/sitting-exercises/"),
+        .init(title: "Check in with Mom", urlString: "imessage://"),
+        .init(title: "Ready? Ship it!", urlString: "https://github.com/")
     ]
 
     static let meetings: [ReminderEvent] = [
-        .init(title: "Standup in 5", urlString: "https://meet.google.com/"),
-        .init(title: "1:1 with Lead", urlString: "https://zoom.us/"),
-        .init(title: "Design review", urlString: "https://meet.google.com/")
+        .init(title: "Standup\nStarts in 5 min", urlString: "https://meet.google.com/"),
+        .init(title: "Time for your 1:1", urlString: "https://zoom.us/"),
+        .init(title: "Design review time", urlString: "https://meet.google.com/")
     ]
 
     static func placeholder() -> ReminderEvent {

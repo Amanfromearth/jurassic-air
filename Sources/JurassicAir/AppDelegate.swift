@@ -13,9 +13,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let scheduler = ReminderScheduler()
     lazy var calendarScheduler = CalendarAlertScheduler(service: Services.calendar)
     var settingsWindow: NSWindow?
+    #if DEBUG
+    private var bannerStressWindow: NSWindow?
+    #endif
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.shared = self
         NSApp.setActivationPolicy(.accessory)
+        #if DEBUG
+        if CommandLine.arguments.contains("--banner-stress") || Bundle.main.bundleIdentifier == "com.anurag.jurassicair.banner-stress" {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 800),
+                                  styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            window.title = "Jurassic Air — Banner stress test (development only)"
+            window.contentViewController = NSHostingController(rootView: BannerStressView())
+            window.contentMinSize = NSSize(width: 900, height: 620)
+            window.setContentSize(NSSize(width: 1100, height: 800))
+            window.isReleasedWhenClosed = false
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            bannerStressWindow = window
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        #endif
 
         dispatcher.screenManager = screenManager
         screenManager.start()
